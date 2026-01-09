@@ -1339,14 +1339,77 @@
 
         function parseTSVText(text, eraName) {
             if (!text) return [];
-            return text.split(/\r?\n/).filter(l => l.trim() !== "").map((line, i) => {
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+            const problems = [];
+            
+            // ヘッダー行の候補（一般的なヘッダー名）
+            const headerKeywords = ["問題", "問", "元素記号", "元素名", "原子番号", "記号", "名称", "番号"];
+            
+            lines.forEach((line, i) => {
                 const cols = line.split('\t').map(c => c.trim().replace(/^"|"$/g, ''));
-                if (cols[0] === "問題" || cols.length < 5) return null;
-                let qRaw = cols[0].replace(/^[（\(](基礎|標準|応用|発展)[）\)]/, "").trim().replace(/([①②③④])/g, '<br>$1').replace(/^<br>/, ''); // 最初の行の先頭の<br>を削除
-                let tag = cols[0].match(/^[（\(](基礎|標準|応用|発展)[）\)]/)?.[1] || "標準";
-                let rawExpl = (cols[13] || cols[14] || "詳細解説準備中。");
-                return { id: `${eraName}-${i + 1}`, era: eraName, question: qRaw, tag, options: [cols[1], cols[2], cols[3], cols[4]], answer: (parseInt(cols[10]) >= 1 && parseInt(cols[10]) <= 4) ? cols[parseInt(cols[10])] : cols[10], explanation: rawExpl.replace(/([①②③④])/g, '<br>$1') };
-            }).filter(p => p !== null);
+                
+                // ヘッダー行をスキップ（最初の行で、かつヘッダーキーワードに一致する場合）
+                if (i === 0 && headerKeywords.some(keyword => cols[0] === keyword || cols.some(c => c === keyword))) {
+                    return; // スキップ
+                }
+                
+                // 空行をスキップ
+                if (cols.length === 0 || cols.every(c => !c || c.trim() === '')) {
+                    return;
+                }
+                
+                // データ形式の判定と処理
+                // 形式1: 標準TSV形式（問題、選択肢1-4、...、正解番号、解説）
+                if (cols.length >= 5) {
+                    let qRaw = cols[0].replace(/^[（\(](基礎|標準|応用|発展)[）\)]/, "").trim().replace(/([①②③④])/g, '<br>$1').replace(/^<br>/, '');
+                    let tag = cols[0].match(/^[（\(](基礎|標準|応用|発展)[）\)]/)?.[1] || "標準";
+                    let rawExpl = (cols[13] || cols[14] || "詳細解説準備中。");
+                    problems.push({ 
+                        id: `${eraName}-${problems.length + 1}`, 
+                        era: eraName, 
+                        question: qRaw, 
+                        tag, 
+                        options: [cols[1], cols[2], cols[3], cols[4]], 
+                        answer: (parseInt(cols[10]) >= 1 && parseInt(cols[10]) <= 4) ? cols[parseInt(cols[10])] : cols[10], 
+                        explanation: rawExpl.replace(/([①②③④])/g, '<br>$1') 
+                    });
+                }
+                // 形式2: 簡易形式（2-3列: 問題、答え、または問題、選択肢1、選択肢2、選択肢3、選択肢4、答え）
+                else if (cols.length >= 2) {
+                    const question = cols[0];
+                    let answer = '';
+                    let options = [];
+                    
+                    // 2列形式: 問題、答え
+                    if (cols.length === 2) {
+                        answer = cols[1];
+                        options = [answer, answer, answer, answer]; // 答えを4回繰り返す
+                    }
+                    // 3-6列形式: 問題、選択肢1、選択肢2、選択肢3、選択肢4、答え
+                    else if (cols.length >= 3 && cols.length <= 6) {
+                        options = [cols[1] || '', cols[2] || '', cols[3] || '', cols[4] || ''].filter(o => o);
+                        answer = cols[cols.length - 1] || cols[1] || ''; // 最後の列が答え、なければ2列目
+                        // 選択肢が不足している場合は答えで補完
+                        while (options.length < 4) {
+                            options.push(answer || '');
+                        }
+                    }
+                    
+                    if (question && answer) {
+                        problems.push({
+                            id: `${eraName}-${problems.length + 1}`,
+                            era: eraName,
+                            question: question,
+                            tag: "標準",
+                            options: options.slice(0, 4),
+                            answer: answer,
+                            explanation: `正解: ${answer}`
+                        });
+                    }
+                }
+            });
+            
+            return problems;
         }
 
         window.renderEraMenu = () => {
