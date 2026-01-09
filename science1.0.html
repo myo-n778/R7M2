@@ -2168,16 +2168,20 @@
         window.syncAllFromSpreadsheet = async (isAuto = false) => { 
             if (!FIXED_GAS_URL) return;
             
-            // ユーザー情報が設定されていない場合はエラーを表示
-            if (!USER_NAME || USER_NAME.trim() === '' || !USER_CLASS || !USER_NUMBER) {
-                if (!isAuto) {
-                    showModal("Sync Error", "ユーザー情報が不完全です。先にクラス・番号・名前を登録してください。");
-                }
-                return;
-            }
+            // ユーザー情報が設定されていない場合でも問題データは取得できるようにする
+            let userId = '';
+            const hasUserInfo = USER_NAME && USER_NAME.trim() !== '' && USER_CLASS && USER_NUMBER;
             
-            // ユーザーIDの生成（クラス-番号-名前形式）
-            const userId = `${USER_CLASS}-${USER_NUMBER}-${USER_NAME}`;
+            if (hasUserInfo) {
+                // ユーザーIDの生成（クラス-番号-名前形式）
+                userId = `${USER_CLASS}-${USER_NUMBER}-${USER_NAME}`;
+            } else {
+                if (!isAuto) {
+                    console.warn('⚠️ [新版] ユーザー情報が未設定。問題データのみ取得します。');
+                }
+                // ユーザー情報がない場合は空文字列を渡す（問題データは取得可能）
+                userId = '';
+            }
             
             // UIの入力フィールドからURLを取得（存在する場合）、なければ固定URLを使用
             const urlInput = getEl('main-spreadsheet-url');
@@ -2191,11 +2195,14 @@
             }
             
             try { 
-                const syncUrl = `${FIXED_GAS_URL}?action=sync&id=${sid}&userId=${userId}`;
-                console.log('同期URL:', syncUrl);
-                console.log('使用中のスプレッドシートURL:', spreadsheetUrl);
-                console.log('スプレッドシートID:', sid);
-                console.log('ユーザー名:', USER_NAME);
+                // userIdが空の場合はパラメータを省略しない（GAS側で空文字列として処理）
+                const syncUrl = `${FIXED_GAS_URL}?action=sync&id=${sid}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`;
+                console.log('🚀 [新版] 同期を開始:', {
+                    url: syncUrl,
+                    spreadsheetId: sid,
+                    hasUserInfo: hasUserInfo,
+                    userId: userId || '(未設定)'
+                });
                 
                 const result = await fetchWithRetry(syncUrl); 
                 console.log('同期結果全体:', result);
