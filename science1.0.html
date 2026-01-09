@@ -292,6 +292,7 @@
                     <h3 class="text-xs font-black text-white/50 uppercase italic flex items-center gap-2"><i class="fas fa-link"></i> Sync Manager</h3>
                     <input id="main-spreadsheet-url" type="text" class="w-full bg-black border border-slate-700 rounded p-2 text-[10px] text-emerald-300 outline-none" value="">
                     <button id="sync-all-btn-action" class="w-full bg-indigo-600 text-white text-[10px] py-3 rounded-lg font-black uppercase">Refresh & Sync Now</button>
+                    <div id="sync-error-display" class="hidden"></div>
                 </div>
             </div>
         </div>
@@ -566,13 +567,138 @@
             if (modal) modal.classList.remove('active');
         };
 
-        async function fetchWithRetry(url, options = {}, retries = 5, backoff = 1000) {
+        // 新版専用: 詳細な診断ログ付きfetch関数
+        async function fetchWithDetailedDiagnostics(url, options = {}) {
+            const diagnostic = {
+                requestUrl: url,
+                requestMethod: options.method || 'GET',
+                timestamp: new Date().toISOString()
+            };
+            
+            console.group('🔍 [新版] GAS同期診断');
+            console.log('📤 リクエストURL:', url);
+            console.log('📤 リクエストメソッド:', diagnostic.requestMethod);
+            console.log('📤 リクエストオプション:', options);
+            
             try {
                 const res = await fetch(url, options);
-                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-                return await res.json();
+                
+                // レスポンスの基本情報を記録
+                diagnostic.responseStatus = res.status;
+                diagnostic.responseOk = res.ok;
+                diagnostic.responseStatusText = res.statusText;
+                diagnostic.responseUrl = res.url; // リダイレクト後のURL
+                diagnostic.responseHeaders = {};
+                res.headers.forEach((value, key) => {
+                    diagnostic.responseHeaders[key] = value;
+                });
+                
+                console.log('📥 レスポンスステータス:', res.status, res.statusText);
+                console.log('📥 レスポンスOK:', res.ok);
+                console.log('📥 レスポンスURL（リダイレクト後）:', res.url);
+                console.log('📥 レスポンスヘッダー:', diagnostic.responseHeaders);
+                console.log('📥 Content-Type:', res.headers.get('content-type'));
+                
+                // リダイレクトチェック
+                if (res.url !== url) {
+                    console.warn('⚠️ リダイレクト検出:', url, '→', res.url);
+                    if (res.url.includes('googleusercontent.com') || res.url.includes('accounts.google.com')) {
+                        console.error('❌ Google認証画面へのリダイレクト。GASのデプロイ設定を確認してください。');
+                        throw new Error('GASへのアクセスが認証にリダイレクトされました。デプロイ設定（アクセス権: 全員）を確認してください。');
+                    }
+                }
+                
+                // HTTPステータスコード別の診断
+                if (res.status === 302 || res.status === 301 || res.status === 307 || res.status === 308) {
+                    console.error('❌ リダイレクトステータス:', res.status);
+                    throw new Error(`リダイレクトが発生しました: ${res.status} → ${res.url}`);
+                }
+                
+                if (res.status === 403) {
+                    console.error('❌ 403 Forbidden: アクセス権限がありません');
+                    throw new Error('403 Forbidden: GASのデプロイ設定で「アクセスできるユーザー: 全員」になっているか確認してください。');
+                }
+                
+                if (res.status === 404) {
+                    console.error('❌ 404 Not Found: GAS URLが間違っているか、デプロイが無効です');
+                    throw new Error('404 Not Found: GAS URLを確認してください。');
+                }
+                
+                if (res.status >= 500) {
+                    console.error('❌ サーバーエラー:', res.status);
+                    const errorText = await res.text().catch(() => '');
+                    console.error('❌ エラー本文:', errorText.substring(0, 500));
+                    throw new Error(`GASサーバーエラー ${res.status}: ${errorText.substring(0, 200)}`);
+                }
+                
+                if (!res.ok) {
+                    console.error('❌ HTTPエラー:', res.status, res.statusText);
+                    const errorText = await res.text().catch(() => '');
+                    console.error('❌ エラー本文:', errorText.substring(0, 500));
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                
+                // Content-Typeチェック
+                const contentType = res.headers.get('content-type') || '';
+                console.log('📥 Content-Type:', contentType);
+                
+                if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
+                    console.warn('⚠️ Content-TypeがJSONではありません:', contentType);
+                    const textPreview = await res.text().catch(() => '');
+                    console.error('❌ レスポンス本文（先頭500文字）:', textPreview.substring(0, 500));
+                    
+                    // HTMLが返された場合（ログインページなど）
+                    if (textPreview.includes('<!DOCTYPE html>') || textPreview.includes('<html')) {
+                        throw new Error('HTMLが返されました。GASのデプロイ設定で「アクセスできるユーザー: 全員」になっているか確認してください。');
+                    }
+                    
+                    throw new Error(`予期しないContent-Type: ${contentType}`);
+                }
+                
+                // JSONパースを試行
+                let jsonData;
+                try {
+                    jsonData = await res.json();
+                    console.log('✅ JSONパース成功');
+                    console.log('📦 データ構造:', Object.keys(jsonData));
+                } catch (parseError) {
+                    const textData = await res.text().catch(() => '');
+                    console.error('❌ JSONパースエラー:', parseError);
+                    console.error('❌ レスポンス本文（先頭500文字）:', textData.substring(0, 500));
+                    throw new Error(`JSONパースエラー: ${parseError.message}. レスポンス: ${textData.substring(0, 200)}`);
+                }
+                
+                // エラーフィールドのチェック
+                if (jsonData.error) {
+                    console.error('❌ GAS側のエラー:', jsonData.error);
+                    throw new Error(`GASエラー: ${jsonData.error}`);
+                }
+                
+                diagnostic.success = true;
+                console.log('✅ 同期成功');
+                console.groupEnd();
+                return jsonData;
+                
             } catch (err) {
-                if (retries > 0) { await new Promise(r => setTimeout(r, backoff)); return fetchWithRetry(url, options, retries - 1, backoff * 2); }
+                diagnostic.error = err.message;
+                diagnostic.success = false;
+                console.error('❌ 同期エラー:', err);
+                console.error('❌ エラースタック:', err.stack);
+                console.groupEnd();
+                throw err;
+            }
+        }
+
+        // 後方互換性のため、既存のfetchWithRetryも保持
+        async function fetchWithRetry(url, options = {}, retries = 5, backoff = 1000) {
+            try {
+                return await fetchWithDetailedDiagnostics(url, options);
+            } catch (err) {
+                if (retries > 0) {
+                    console.log(`🔄 リトライ (残り${retries}回) - ${backoff}ms後に再試行`);
+                    await new Promise(r => setTimeout(r, backoff));
+                    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                }
                 throw err;
             }
         }
@@ -1878,6 +2004,70 @@
 
         function renderDots() { const bar = getEl('dot-bar'); if(!bar) return; bar.innerHTML = ''; quizData.forEach((_, i) => { const d = document.createElement('div'); d.className = 'progress-dot'; d.id = `dot-${i}`; bar.appendChild(d); }); }
         function showModal(title, message) { const modal = getEl('custom-modal'); if(modal) { getEl('modal-title').innerText = title; getEl('modal-message').innerText = message; modal.classList.add('active'); } }
+        
+        // 新版専用: 診断情報付きエラー表示
+        function showDiagnosticError(error, isAuto = false) {
+            let errorTitle = '同期エラー';
+            let errorMessage = '';
+            let diagnosticInfo = '';
+            
+            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+                errorTitle = 'ネットワークエラー';
+                errorMessage = 'GASへの接続に失敗しました。';
+                diagnosticInfo = '原因: CORSエラーまたはネットワーク接続の問題\n\n対策:\n1. GAS URLが正しいか確認\n2. GASスクリプトが「ウェブアプリ」としてデプロイされているか確認\n3. デプロイ設定で「アクセスできるユーザー: 全員」になっているか確認\n4. ブラウザのコンソール（F12）で詳細を確認';
+            } else if (error.message.includes('リダイレクト') || error.message.includes('302') || error.message.includes('301')) {
+                errorTitle = 'リダイレクトエラー';
+                errorMessage = 'GASへのアクセスがリダイレクトされました。';
+                diagnosticInfo = '原因: GASのデプロイ設定の問題\n\n対策:\n1. GASスクリプトを「ウェブアプリ」としてデプロイ\n2. 「アクセスできるユーザー: 全員」に設定\n3. 「次のユーザーとして実行: 自分」に設定\n4. 新しいデプロイを作成してURLを更新';
+            } else if (error.message.includes('403') || error.message.includes('Forbidden')) {
+                errorTitle = 'アクセス権限エラー';
+                errorMessage = 'GASへのアクセスが拒否されました。';
+                diagnosticInfo = '原因: アクセス権限が不足しています\n\n対策:\n1. GASスクリプトのデプロイ設定で「アクセスできるユーザー: 全員」を選択\n2. 新しいデプロイを作成してURLを取得\n3. HTMLファイルのGAS URLを更新';
+            } else if (error.message.includes('404') || error.message.includes('Not Found')) {
+                errorTitle = 'GAS URLエラー';
+                errorMessage = 'GASスクリプトが見つかりません。';
+                diagnosticInfo = '原因: GAS URLが間違っているか、デプロイが無効\n\n対策:\n1. GASスクリプトがデプロイされているか確認\n2. GAS URLが正しいか確認\n3. デプロイID（URLの最後の文字列）が最新か確認';
+            } else if (error.message.includes('500') || error.message.includes('サーバーエラー')) {
+                errorTitle = 'GASサーバーエラー';
+                errorMessage = 'GASスクリプトでエラーが発生しました。';
+                diagnosticInfo = `原因: GASスクリプト内のエラー\n\n詳細: ${error.message}\n\n対策:\n1. GASスクリプトの実行ログを確認\n2. スプレッドシートIDが正しいか確認\n3. スプレッドシートへのアクセス権限を確認`;
+            } else if (error.message.includes('HTMLが返されました') || error.message.includes('ログイン')) {
+                errorTitle = '認証エラー';
+                errorMessage = 'GASへのアクセスで認証が必要です。';
+                diagnosticInfo = '原因: GASのデプロイ設定が「アクセスできるユーザー: 全員」になっていない\n\n対策:\n1. GASスクリプトを開く\n2. 「デプロイ」→「管理デプロイ」をクリック\n3. 鉛筆アイコンをクリックして編集\n4. 「アクセスできるユーザー」を「全員」に変更\n5. 「更新」をクリック';
+            } else {
+                errorTitle = '同期エラー';
+                errorMessage = error.message || 'データの取得に失敗しました。';
+                diagnosticInfo = `エラー詳細: ${error.message}\n\n対策:\n1. ブラウザのコンソール（F12）で詳細を確認\n2. GAS URLとスプレッドシートIDが正しいか確認\n3. ネットワーク接続を確認`;
+            }
+            
+            console.error('❌ [新版] エラー詳細:', {
+                title: errorTitle,
+                message: errorMessage,
+                originalError: error.message,
+                stack: error.stack
+            });
+            
+            if (!isAuto) {
+                showModal(errorTitle, `${errorMessage}\n\n${diagnosticInfo}`);
+            }
+            
+            // 画面上にもエラー表示を追加
+            const errorDisplay = getEl('sync-error-display');
+            if (errorDisplay) {
+                errorDisplay.innerHTML = `
+                    <div class="bg-rose-500/20 border border-rose-500/50 rounded-xl p-4 text-left">
+                        <div class="text-rose-300 font-bold mb-2">⚠️ ${errorTitle}</div>
+                        <div class="text-rose-200 text-sm mb-2">${errorMessage}</div>
+                        <details class="text-xs text-rose-300">
+                            <summary class="cursor-pointer mb-1">詳細情報</summary>
+                            <pre class="mt-2 p-2 bg-black/30 rounded text-[10px] overflow-auto max-h-40">${diagnosticInfo}</pre>
+                        </details>
+                    </div>
+                `;
+                errorDisplay.style.display = 'block';
+            }
+        }
 
         function finishSession() {
             const oldExp = parseInt(getEl('total-neural-exp').innerText) || 0;
@@ -2043,8 +2233,11 @@
                 window.maxStreak = result.maxStreak || 0; 
                 updateStatsUI(); window.renderEraMenu(); 
             } catch (e) { 
-                console.error('同期エラー:', e);
-                if (!isAuto) showModal("Sync Error", "データの取得に失敗しました。URLをご確認ください。"); 
+                console.error('❌ [新版] 同期エラー:', e);
+                console.error('❌ [新版] エラースタック:', e.stack);
+                
+                // 詳細なエラーメッセージを表示
+                showDiagnosticError(e, isAuto);
             } 
         };
         
@@ -2063,6 +2256,32 @@
             mid: ["一歩ずつ、確実に成長していますね。基礎は固まりました。次は応用力を磨こう。", "着実に前進しています. 間違えた問題こそ、あなたの実力を伸ばす鍵になります。", "手応えを感じ始めているはず。今は知識を繋ぎ合わせる時期。焦らず進んで。", "半分以上は正解できています。残りはもう一度教科書を見直すだけで解決します。", "努力の成果が見え始めています。毎日少しずつの積み重ねが大きな力に変わる。", "粘り強く頑張っていますね。このスコアは、あなたが挑戦し続けている証拠です。", "大丈夫、伸び代はたっぷりあります。今の悔しさをバネに、次はもっと高得点を。", "基礎ブロックの再構築が必要です。間違えた時代の流れを物語のように読み返そう。", "着実な進歩です。得意な時代を一つ作り、そこから広げるのが合格への近道です。", "学習の成果が出ています。理解できている部分は自信を持ち、曖昧な部分は今。 ", "一歩一歩、階段を上っています。今の努力は必ず本番であなたを助けてくれます。", "前向きにいきましょう！演習を繰り返すごとに知識の網目は細かくなっていきます。", "基礎はできています。用語同士の繋がりを意識すると、正答率は跳ね上がります。", "今の頑張りが未来のあなたを作ります。間違えた問題を友達だと思って向き合って。", "合格へのプロセスを歩んでいます。点数に一喜一憂せず、内容の理解を優先して。", "学習のリズムを作っていきましょう。今日できなかったことは明日できれば良い。", "着実な歩みです. 歴史の全体像が見え始めています。枝葉を足す作業に入ろう。", "成長の真っ最中にいます。諦めずに繰り返すことで、景色は必ず変わりますよ。", "手応えを信じてください。今は点数よりも解説を読んで納得することを大切に。", "頑張っていますね。一問正解するごとに以前の自分を超えています。応援してる！"],
             low: ["焦る必要はありません。今は知識の穴を見つける最高のチャンス。一つずつ。 ", "まずは基礎単語から再確認してみましょう。土台がしっかりすれば点数は伸びる。", "リンクが少し不安定なだけ. リラックスしてもう一度解説を読んでみてください。", "ここが踏ん張りどころ. 一つずつ丁寧に理解を深めれば、必ず景色が変わります。", "今は間違いを恐れず演習しましょう。その悔しさが、本番の得点に繋がります。", "伸び代は無限大！まずは一番好きな時代から集中的に復習してみるのはどう？ ", "歴史の流れをざっと掴むところから再開しましょう。物語を楽しむ気持ちで。 ", "あなたは今、一番苦しい時期かもしれません。レベルアップには挑戦が必要です。", "点数ではなく、今日新しく知った「知識」に注目. 一歩ずつ前へ進めば大丈夫。", "大丈夫です。どんな名人も、最初は今のあなたと同じ場所からスタートした。 ", "間違えた分だけ、強くなれます。解説を「なるほど」と思うまで読み返して。 ", "深呼吸して、もう一度基礎に立ち返りましょう。急がば回れが最短ルートです。", "自分のペースで大丈夫. 他人と比べる必要はありません。昨日を超えていこう。", "知識を整理するチャンスです。年表を一度自分で書いてみると驚くほど進みます。", "諦めないで。このアプリは、あなたが再び立ち上がるのを何度でもサポートする。", "まずは一つ確実に覚えることから始めよう。その積み重ねが巨大な力になります。", "歴史は繋がりです。断片的な知識を、時代という糸で繋ぎ直す作業を今しよう。", "あなたの挑戦自体が素晴らしい。今日の結果を分析して明日の糧にしてください。", "少しずつでいい。教科書を1ページ読むだけで世界は昨日より広がっています。", "負けないで. あなたの「合格したい」という気持ちを、心から応援しています！"]
         };
+
+        // 新版専用: DOMContentLoadedで同期を実行
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🚀 [新版] DOMContentLoaded: 初期同期を開始');
+            
+            // ユーザー情報の初期化
+            initUserInfo();
+            
+            // ユーザー情報が既に設定されている場合は同期を実行
+            const savedName = localStorage.getItem('ethics_user_name');
+            const savedClass = localStorage.getItem('ethics_user_class');
+            const savedNumber = localStorage.getItem('ethics_user_number');
+            
+            if (savedName && savedClass && savedNumber) {
+                console.log('✅ [新版] ユーザー情報が見つかりました。同期を実行します。');
+                // 少し遅延を入れて、他の初期化が完了してから同期
+                setTimeout(() => {
+                    window.syncAllFromSpreadsheet(true).catch(err => {
+                        console.error('❌ [新版] 初期同期エラー:', err);
+                        showDiagnosticError(err);
+                    });
+                }, 500);
+            } else {
+                console.log('⏸️ [新版] ユーザー情報が未設定。登録後に同期されます。');
+            }
+        });
 
         window.onload = () => {
             initUserInfo();
