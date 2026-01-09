@@ -2333,7 +2333,13 @@
                     });
                 }, 500);
             } else {
-                console.log('⏸️ [新版] ユーザー情報が未設定。登録後に同期されます。');
+                console.log('⏸️ [新版] ユーザー情報が未設定。問題データのみ取得します。');
+                // ユーザー情報がなくても問題データは取得可能
+                setTimeout(() => {
+                    window.syncAllFromSpreadsheet(true).catch(err => {
+                        console.error('❌ [新版] 初期同期エラー（ユーザー情報なし）:', err);
+                    });
+                }, 500);
             }
         });
 
