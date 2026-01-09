@@ -602,9 +602,15 @@
                 // リダイレクトチェック
                 if (res.url !== url) {
                     console.warn('⚠️ リダイレクト検出:', url, '→', res.url);
-                    if (res.url.includes('googleusercontent.com') || res.url.includes('accounts.google.com')) {
+                    // script.googleusercontent.comへのリダイレクトは正常（GAS WebAppの標準動作）
+                    // accounts.google.comへのリダイレクトのみをエラーとして扱う
+                    if (res.url.includes('accounts.google.com')) {
                         console.error('❌ Google認証画面へのリダイレクト。GASのデプロイ設定を確認してください。');
                         throw new Error('GASへのアクセスが認証にリダイレクトされました。デプロイ設定（アクセス権: 全員）を確認してください。');
+                    }
+                    // script.googleusercontent.comへのリダイレクトは正常（ステータス200、JSONが返る）
+                    if (res.url.includes('googleusercontent.com') && res.ok && res.status === 200) {
+                        console.log('✅ GAS WebAppへの正常なリダイレクト（これは正常な動作です）');
                     }
                 }
                 
