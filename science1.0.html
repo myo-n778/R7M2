@@ -1443,15 +1443,28 @@
             
             // CSV形式とTSV形式を自動判別してパース
             masterDataTotal = Object.entries(storedTSV).flatMap(([category, data]) => {
+                if (!data || data.trim() === '') {
+                    console.warn(`カテゴリ "${category}" のデータが空です`);
+                    return [];
+                }
+                
                 // 最初の行を確認してフォーマットを判別
                 const firstLine = data.split(/\r?\n/)[0] || '';
-                const cols = firstLine.split('\t');
-                // TSV形式（タブ区切りで5列以上）かCSV形式（カンマ区切りで2列）かを判別
-                if (cols.length >= 5) {
-                    return parseTSVText(data, category);
+                const tabCols = firstLine.split('\t');
+                const commaCols = firstLine.split(',');
+                
+                // TSV形式（タブ区切り）かCSV形式（カンマ区切り）かを判別
+                // タブの数が多い場合はTSV、カンマの数が多い場合はCSV
+                if (tabCols.length > commaCols.length) {
+                    // TSV形式としてパース
+                    const parsed = parseTSVText(data, category);
+                    console.log(`カテゴリ "${category}" (TSV形式): ${parsed.length}問を読み込み`);
+                    return parsed;
                 } else {
                     // CSV形式としてパース
-                    return parseCSVText(data, category);
+                    const parsed = parseCSVText(data, category);
+                    console.log(`カテゴリ "${category}" (CSV形式): ${parsed.length}問を読み込み`);
+                    return parsed;
                 }
             });
             container.innerHTML = '';
