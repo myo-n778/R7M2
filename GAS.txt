@@ -64,7 +64,11 @@ if (hData.length > 1) {
 const gainedExp = parseInt(p.gainedExp) || 0;
 let lastCumulativeExp = 0;
 if (userRows.length > 0) {
-  lastCumulativeExp = parseInt(userRows[userRows.length - 1][8]) || 0;
+  // 列インデックスの調整：新形式（クラス・番号列あり）では累計EXPは列10（index 10）、旧形式では列9（index 9）
+  const lastRow = userRows[userRows.length - 1];
+  const hasNewFormat = lastRow.length >= 18; // 新形式判定（18列以上）
+  const cumulativeExpIndex = hasNewFormat ? 10 : 9; // 新形式:列10、旧形式:列9
+  lastCumulativeExp = parseInt(lastRow[cumulativeExpIndex]) || 0;
 }
 const newTotalExp = lastCumulativeExp + gainedExp;
 
@@ -249,7 +253,9 @@ if (historySheet) {
     // 列インデックスの調整：クラス・番号が追加されたため、以降の列が2つずつ後ろにシフト
     // 旧データとの互換性を考慮（列数で判定）
     const hasClassColumn = hDisp[i].length >= 18; // クラス・番号列がある場合
-    const exp = parseInt(hasClassColumn ? hDisp[i][9] : hDisp[i][8]) || 0;
+    // 累計EXPの位置: 新形式では列10（index 10）、旧形式では列9（index 9）
+    const totalExpIndex = hasClassColumn ? 10 : 9;
+    const exp = parseInt(hDisp[i][totalExpIndex]) || 0;
     const uName = hDisp[i][5];
     const avg10 = hasClassColumn ? hDisp[i][11] : hDisp[i][9];
     const overall = hasClassColumn ? hDisp[i][12] : hDisp[i][10];
