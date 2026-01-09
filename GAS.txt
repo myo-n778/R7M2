@@ -246,65 +246,124 @@ if (statsSheet) {
 
 const historySheet = ss.getSheetByName("履歴ログ");
 if (historySheet) {
+  // 値と表示値を両方取得（数値と日付の正確な取得のため）
+  const hValues = historySheet.getDataRange().getValues();
   const hDisp = historySheet.getDataRange().getDisplayValues();
   const userFullMap = {};
+  
+  // 履歴データを時系列でソートするための配列を作成
+  const historyRows = [];
+  for (let i = 1; i < hValues.length; i++) {
+    if (hValues[i][0] && hDisp[i][0]) { // 日時が存在する場合のみ
+      try {
+        const timestamp = new Date(hValues[i][0]).getTime();
+        if (!isNaN(timestamp)) {
+          historyRows.push({
+            index: i,
+            timestamp: timestamp,
+            values: hValues[i],
+            display: hDisp[i]
+          });
+        }
+      } catch (e) {
+        // 日時パースエラーはスキップ
+        console.error('日時パースエラー (行' + (i+1) + '):', e);
+      }
+    }
+  }
+  
+  // 時系列順にソート（新しい順）
+  historyRows.sort((a, b) => b.timestamp - a.timestamp);
 
-  for (let i = 1; i < hDisp.length; i++) {
-    const uId = String(hDisp[i][6]);
+  for (let idx = 0; idx < historyRows.length; idx++) {
+    const row = historyRows[idx];
+    const i = row.index;
+    const hVal = row.values;
+    const hDispRow = row.display;
+    
+    const uId = String(hDispRow[6] || '');
+    if (!uId || uId === '') continue; // ユーザーIDが無い場合はスキップ
+    
     // 列インデックスの調整：クラス・番号が追加されたため、以降の列が2つずつ後ろにシフト
     // 旧データとの互換性を考慮（列数で判定）
-    const hasClassColumn = hDisp[i].length >= 18; // クラス・番号列がある場合
+    const hasClassColumn = hDispRow.length >= 18; // クラス・番号列がある場合
+    
     // 累計EXPの位置: 新形式では列10（index 10）、旧形式では列9（index 9）
     const totalExpIndex = hasClassColumn ? 10 : 9;
-    const exp = parseInt(hDisp[i][totalExpIndex]) || 0;
-    const uName = hDisp[i][5];
-    const avg10 = hasClassColumn ? hDisp[i][11] : hDisp[i][9];
-    const overall = hasClassColumn ? hDisp[i][12] : hDisp[i][10];
+    // 数値として取得（getValues()から取得）
+    let exp = 0;
+    if (typeof hVal[totalExpIndex] === 'number') {
+      exp = Math.floor(hVal[totalExpIndex]) || 0;
+    } else {
+      exp = parseInt(String(hDispRow[totalExpIndex]).replace(/[^0-9]/g, '')) || 0;
+    }
+    
+    const uName = String(hDispRow[5] || '').trim();
+    if (!uName) continue; // ユーザー名が無い場合はスキップ
+    
+    const avg10 = hasClassColumn ? String(hDispRow[11] || '') : String(hDispRow[9] || '');
+    const overall = hasClassColumn ? String(hDispRow[12] || '') : String(hDispRow[10] || '');
+    
     // 公開設定の位置: 新形式では列15（index 14）、旧形式では列13（index 12）
     const isPublicIndex = hasClassColumn ? 14 : 12;
     // 公開設定の値を安全に取得（数値、文字列、"公開"などに対応）
-    // 日付として誤解釈される可能性を考慮（1が1900/1/1として解釈される場合がある）
-    const isPublicValue = hDisp[i][isPublicIndex];
-    // 日付オブジェクトの場合は除外（toString()で"Mon Jan 01 1900..."のような文字列になる）
-    const isPublicValueStr = String(isPublicValue);
-    const isDateLike = isPublicValueStr.includes('Jan') || isPublicValueStr.includes('1900') || isPublicValueStr.includes('月');
-    const isPublic = (!isDateLike && (isPublicValue === 1 || isPublicValue === '1' || isPublicValueStr.trim() === '公開' || isPublicValue === true || isPublicValueStr.trim() === '1')) ? true : false;
+    const isPublicValue = hDispRow[isPublicIndex];
+    const isPublicValueStr = String(isPublicValue || '').trim();
+    // 日付として誤解釈される可能性を考慮
+    const isDateLike = isPublicValueStr.includes('Jan') || isPublicValueStr.includes('1900') || isPublicValueStr.includes('月') || isPublicValueStr.includes('/');
+    const isPublic = (!isDateLike && (
+      isPublicValue === 1 || 
+      isPublicValue === '1' || 
+      isPublicValueStr === '公開' || 
+      isPublicValue === true || 
+      isPublicValueStr === '1' ||
+      String(isPublicValue).toLowerCase() === 'true'
+    )) ? true : false;
 
+    // 自分の履歴を追加
     if (uId === String(userId)) {
-      const sParts = String(hDisp[i][4]).split('/');
+      const sParts = String(hDispRow[4] || '').split('/');
       result.history.push({ 
-        date: hDisp[i][0].split(' ')[0].substring(5),
-        score: hDisp[i][3], correctCount: parseInt(sParts[0]) || 0, totalQ: parseInt(sParts[1]) || 10,
-        timestamp: new Date(hDisp[i][0]).getTime(),
-        totalExp: exp, avg10: avg10, overallAcc: overall,
-        summaryEra: hDisp[i][1] || '', // 単元（分野名）
-        summaryRange: hDisp[i][2] || '' // 範囲（例：「1-10」）
+        date: String(hDispRow[0] || '').split(' ')[0].substring(5),
+        score: String(hDispRow[3] || ''), 
+        correctCount: parseInt(sParts[0]) || 0, 
+        totalQ: parseInt(sParts[1]) || 10,
+        timestamp: row.timestamp,
+        totalExp: exp, 
+        avg10: avg10, 
+        overallAcc: overall,
+        summaryEra: String(hDispRow[1] || ''), // 単元（分野名）
+        summaryRange: String(hDispRow[2] || '') // 範囲（例：「1-10」）
       });
     }
     
     // ランキング用：公開設定が1（公開）のユーザーのみ収集
-    if (isPublic) {
+    // 各ユーザーの最新レコードのみを使用（既に時系列順にソート済み）
+    if (isPublic && !userFullMap[uId]) {
       const sessionCountIndex = hasClassColumn ? 15 : 13;
       const lastAttemptDateIndex = hasClassColumn ? 16 : 14;
       const statusIndex = hasClassColumn ? 17 : 15;
-      const sessionCount = parseInt(hDisp[i][sessionCountIndex]) || 0;
-      const lastAttemptDate = hDisp[i][lastAttemptDateIndex] || '';
       
-      const userStatus = hDisp[i][statusIndex] || '';
-      if (!userFullMap[uId] || exp >= userFullMap[uId].exp) {
-        userFullMap[uId] = {
-          name: uName, exp: exp, avg10: avg10, overall: overall,
-          count: sessionCount,
-          lastAttemptDate: lastAttemptDate,
-          status: userStatus
-        };
+      // セッション数の取得
+      let sessionCount = 0;
+      if (typeof hVal[sessionCountIndex] === 'number') {
+        sessionCount = Math.floor(hVal[sessionCountIndex]) || 0;
       } else {
-        // より最新のデータで更新（セッション数と最終取り組み日も）
-        if (sessionCount > (userFullMap[uId].count || 0)) {
-          userFullMap[uId].count = sessionCount;
-          userFullMap[uId].lastAttemptDate = lastAttemptDate;
-        }
+        sessionCount = parseInt(String(hDispRow[sessionCountIndex] || '').replace(/[^0-9]/g, '')) || 0;
       }
+      
+      const lastAttemptDate = String(hDispRow[lastAttemptDateIndex] || '').trim();
+      const userStatus = String(hDispRow[statusIndex] || '').trim();
+      
+      userFullMap[uId] = {
+        name: uName, 
+        exp: exp, 
+        avg10: avg10, 
+        overall: overall,
+        count: sessionCount,
+        lastAttemptDate: lastAttemptDate,
+        status: userStatus
+      };
     }
   }
   
