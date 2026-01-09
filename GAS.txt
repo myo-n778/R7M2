@@ -208,19 +208,48 @@ allSheets.forEach(s => {
       const sheetData = s.getDataRange().getValues();
       // 空のシートをスキップ（ヘッダー行のみ、またはデータなし）
       if (sheetData.length <= 1) {
+        console.log(`シート "${name}" は空のためスキップ`);
         return; // 次のシートへ
       }
+      
+      // 有効なデータ行をフィルタリング（全て空の行を除外）
+      const validRows = sheetData.filter(row => {
+        // 行の少なくとも1つのセルに値がある場合は有効
+        return row.some(cell => {
+          const cellStr = String(cell || '').trim();
+          return cellStr !== '' && cellStr !== 'undefined' && cellStr !== 'null';
+        });
+      });
+      
+      if (validRows.length <= 1) {
+        console.log(`シート "${name}" に有効なデータ行がありません（ヘッダーのみ）`);
+        return; // 次のシートへ
+      }
+      
       // TSV形式に変換（タブ区切り）
       // シート名がそのまま分野名（category/era）として使用される
-      result.problems[name] = sheetData.map(r => 
-        r.map(c => String(c).replace(/\t/g, " ").replace(/\n/g, " ")).join('\t')
+      const tsvData = validRows.map(r => 
+        r.map(c => {
+          const cellStr = String(c || '').trim();
+          // タブと改行を空白に置換（データの破損を防ぐ）
+          return cellStr.replace(/\t/g, " ").replace(/\n/g, " ").replace(/\r/g, " ");
+        }).join('\t')
       ).join('\n');
+      
+      if (tsvData.trim() === '' || tsvData.trim().split('\n').length <= 1) {
+        console.log(`シート "${name}" の変換後のデータが空です`);
+        return; // 次のシートへ
+      }
+      
+      result.problems[name] = tsvData;
       // シートの順序を配列に追加（左から右の順序）
       result.sheetOrder.push(name);
       loadedSheets.push(name);
+      console.log(`シート "${name}" を読み込みました（${validRows.length - 1}行のデータ）`);
     } catch (err) {
       // シートの読み込みエラーを記録（ただし処理は続行）
       console.error(`シート "${name}" の読み込みエラー:`, err.toString());
+      console.error(`エラーの詳細:`, err);
     }
   }
 });
