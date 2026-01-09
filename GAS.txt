@@ -192,20 +192,41 @@ const excludeSheets = ["履歴ログ", "詳細履歴ログ", "問題別統計DB"
 // 新しいシートを追加するだけで、自動的に問題データとして認識される
 // CSV形式（問題,答え）とTSV形式（複数カラム）の両方に対応
 // シートの順序（左から右）を保持
-ss.getSheets().forEach(s => {
+const allSheets = ss.getSheets();
+let loadedSheets = [];
+
+allSheets.forEach(s => {
   const name = s.getName();
   // システム用シートを除外し、その他のすべてのシート（分野）を取得
   if (!excludeSheets.includes(name)) {
-    const sheetData = s.getDataRange().getValues();
-    // TSV形式に変換（タブ区切り）
-    // シート名がそのまま分野名（category/era）として使用される
-    result.problems[name] = sheetData.map(r => 
-      r.map(c => String(c).replace(/\t/g, " ").replace(/\n/g, " ")).join('\t')
-    ).join('\n');
-    // シートの順序を配列に追加（左から右の順序）
-    result.sheetOrder.push(name);
+    try {
+      const sheetData = s.getDataRange().getValues();
+      // 空のシートをスキップ（ヘッダー行のみ、またはデータなし）
+      if (sheetData.length <= 1) {
+        return; // 次のシートへ
+      }
+      // TSV形式に変換（タブ区切り）
+      // シート名がそのまま分野名（category/era）として使用される
+      result.problems[name] = sheetData.map(r => 
+        r.map(c => String(c).replace(/\t/g, " ").replace(/\n/g, " ")).join('\t')
+      ).join('\n');
+      // シートの順序を配列に追加（左から右の順序）
+      result.sheetOrder.push(name);
+      loadedSheets.push(name);
+    } catch (err) {
+      // シートの読み込みエラーを記録（ただし処理は続行）
+      console.error(`シート "${name}" の読み込みエラー:`, err.toString());
+    }
   }
 });
+
+// デバッグ情報を追加
+result.debug = {
+  totalSheets: allSheets.length,
+  excludedSheets: excludeSheets,
+  loadedSheets: loadedSheets,
+  problemCount: Object.keys(result.problems).length
+};
 
 // 自分の統計
 const statsSheet = ss.getSheetByName("問題別統計DB");

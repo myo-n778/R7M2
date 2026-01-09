@@ -1887,6 +1887,25 @@
                 const result = await fetchWithRetry(syncUrl); 
                 console.log('同期結果全体:', result);
                 console.log('resultの全キー:', Object.keys(result));
+                
+                // エラーチェック
+                if (result.error) {
+                    console.error('同期エラー:', result.error);
+                    if (!isAuto) {
+                        showModal("Sync Error", `データの取得に失敗しました: ${result.error}`);
+                    }
+                    return;
+                }
+                
+                // デバッグ情報を表示
+                if (result.debug) {
+                    console.log('デバッグ情報:', result.debug);
+                    console.log(`全シート数: ${result.debug.totalSheets}`);
+                    console.log(`除外シート: ${result.debug.excludedSheets.join(', ')}`);
+                    console.log(`読み込んだシート: ${result.debug.loadedSheets.join(', ') || '(なし)'}`);
+                    console.log(`問題シート数: ${result.debug.problemCount}`);
+                }
+                
                 console.log('result.problems:', result.problems);
                 console.log('result.problemsの型:', typeof result.problems);
                 console.log('result.problemsのキー:', result.problems ? Object.keys(result.problems) : 'null');
@@ -1899,6 +1918,16 @@
                     if (problemKeys.length > 0) {
                         console.log('最初のキー:', problemKeys[0]);
                         console.log('最初の値のサンプル:', typeof result.problems[problemKeys[0]], result.problems[problemKeys[0]]?.substring(0, 100));
+                    } else {
+                        console.warn('問題シートが読み込まれていません。スプレッドシートに問題シート（システム用シート以外）が存在するか確認してください。');
+                        if (!isAuto) {
+                            showModal("データなし", "問題シートが見つかりませんでした。\n\nスプレッドシートに以下のシートが存在するか確認してください：\n- システム用シート（履歴ログ、詳細履歴ログ、問題別統計DB、成績一覧、メンバー一覧）以外のシート\n- 例：力学、電磁気学など\n\nシート名がそのまま分野名として使用されます。");
+                        }
+                    }
+                } else {
+                    console.error('result.problemsが存在しません');
+                    if (!isAuto) {
+                        showModal("データエラー", "問題データが取得できませんでした。");
                     }
                 }
                 
