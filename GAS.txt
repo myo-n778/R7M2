@@ -127,7 +127,8 @@ if (userDetails.length > 0) {
 }
 
 // 公開設定を取得（1=公開、0または未指定=非公開）
-const isPublic = (p.isPublic === '1' || p.isPublic === 1 || p.isPublic === 'true') ? 1 : 0;
+// スプレッドシートで日付として誤解釈されないよう、文字列として保存
+const isPublic = (p.isPublic === '1' || p.isPublic === 1 || p.isPublic === 'true') ? '1' : '0';
 
 // セッション数を計算（このユーザーの履歴ログの行数を数える）
 const sessionCount = userRows.length + 1; // 既存の行数 + 今回の1行
@@ -259,8 +260,15 @@ if (historySheet) {
     const uName = hDisp[i][5];
     const avg10 = hasClassColumn ? hDisp[i][11] : hDisp[i][9];
     const overall = hasClassColumn ? hDisp[i][12] : hDisp[i][10];
+    // 公開設定の位置: 新形式では列15（index 14）、旧形式では列13（index 12）
     const isPublicIndex = hasClassColumn ? 14 : 12;
-    const isPublic = (hDisp[i][isPublicIndex] === 1 || hDisp[i][isPublicIndex] === '1' || hDisp[i][isPublicIndex] === '公開') ? true : false;
+    // 公開設定の値を安全に取得（数値、文字列、"公開"などに対応）
+    // 日付として誤解釈される可能性を考慮（1が1900/1/1として解釈される場合がある）
+    const isPublicValue = hDisp[i][isPublicIndex];
+    // 日付オブジェクトの場合は除外（toString()で"Mon Jan 01 1900..."のような文字列になる）
+    const isPublicValueStr = String(isPublicValue);
+    const isDateLike = isPublicValueStr.includes('Jan') || isPublicValueStr.includes('1900') || isPublicValueStr.includes('月');
+    const isPublic = (!isDateLike && (isPublicValue === 1 || isPublicValue === '1' || isPublicValueStr.trim() === '公開' || isPublicValue === true || isPublicValueStr.trim() === '1')) ? true : false;
 
     if (uId === String(userId)) {
       const sParts = String(hDisp[i][4]).split('/');
