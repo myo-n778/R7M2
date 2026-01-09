@@ -1,5 +1,14 @@
 # セットアップ手順
 
+## GitHub Pagesでの公開
+
+GitHub Pagesで公開する場合、以下のURLでアクセスできます：
+
+- メインページ: https://myo-n778.github.io/R7M1/
+- 直接アクセス: https://myo-n778.github.io/R7M1/science1.0.html
+
+GitHub Pagesは既に有効になっています。変更をプッシュすると、数分で反映されます。
+
 ## 必要な設定
 
 ### 1. Google Apps Script (GAS) のデプロイ
