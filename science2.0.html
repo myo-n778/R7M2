@@ -77,11 +77,14 @@
             padding: 0.75rem; 
             margin-top: 1rem; 
             box-shadow: none !important;
-            overflow-x: auto; /* スマホで横スクロールを許可 */
-            scrollbar-width: thin; /* スクロールバーを控えめに */
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 400px;
+            scrollbar-width: thin;
         }
-        .ranking-card::-webkit-scrollbar { height: 4px; }
-        .ranking-card::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .ranking-card::-webkit-scrollbar { height: 4px; width: 4px; }
+        .ranking-card::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        .ranking-card::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
         
         /* 中のグリッドが適切な幅になるように固定（status列まで含めて広めに設定） */
         .ranking-card .grid { 
@@ -381,7 +384,7 @@
 
     <!-- スクリプト部分は以前のものを継続して使用 -->
     <script>
-         const FIXED_GAS_URL = "https://script.google.com/macros/s/AKfycbyB_9xZ8OVKR_0AStmM2E-U6NSffddtwteDAJCxqX5_wD0Ehj2XiF-DtyXZPqUwU7_mrA/exec";
+        const FIXED_GAS_URL = "https://script.google.com/macros/s/AKfycbwmT2cqoGpBXtFil7pxQO1G1r2gkASwsI5gguXXCsXSGSG1HbiUwxaursRA1fodko-YAg/exec";
         const FIXED_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1iKHBg4JENpWY7itjRiHjUeQuxEx1a_6xL0Kn3xEV6II/edit";
 
         let USER_NAME = "";
@@ -1665,120 +1668,15 @@
                 const eHeader = document.createElement('div'); 
                 eHeader.className = 'era-header'; 
                 eHeader.innerHTML = `<span>${categoryName} <small class="opacity-50">(${categoryProblems.length})</small></span><i class="fas fa-chevron-right text-[10px]"></i>`;
-                
-                const eContent = document.createElement('div'); 
-                eContent.className = 'era-content grid grid-cols-4 gap-1.5 p-2 max-h-0 overflow-hidden opacity-0 invisible';
-                
-                if (categoryProblems.length > 0) {
-                    // ALLオプションを最初に追加
-                    const allRangeLabel = `ALL(${categoryProblems.length})`;
-                    const allRangeHistory = userHistory.filter(h => 
-                        h.summaryEra === categoryName && (h.summaryRange === allRangeLabel || h.summaryRange === `ALL(${categoryProblems.length})`)
-                    );
-                    const allAttemptCount = allRangeHistory.length;
-                    let allLastAttemptDate = '';
-                    if (allRangeHistory.length > 0) {
-                        const latest = allRangeHistory.sort((a, b) => b.timestamp - a.timestamp)[0];
-                        if (latest.date) {
-                            const dateStr = latest.date;
-                            const parts = dateStr.split('/');
-                            allLastAttemptDate = `${parseInt(parts[0])}/${parseInt(parts[1])}`;
-                        }
-                    }
-                    
-                    const allBtn = document.createElement('button'); 
-                    allBtn.className = "bg-white/5 p-1.5 rounded-lg text-[8px] font-black min-h-[42px] flex flex-col items-center justify-center gap-0.5";
-                    
-                    let allBtnContent = `<span class="text-[9px]">${allRangeLabel}</span>`;
-                    if (allAttemptCount > 0) {
-                        allBtnContent += `<span class="text-[7px] text-cyan-400 opacity-70">${allAttemptCount}回</span>`;
-                        if (allLastAttemptDate) {
-                            allBtnContent += `<span class="text-[7px] text-slate-400 opacity-60">${allLastAttemptDate}</span>`;
-                        }
-                    }
-                    allBtn.innerHTML = allBtnContent;
-                    
-                    allBtn.onclick = () => { 
-                        currentSessionEra = categoryName; 
-                        currentSessionRangeLabel = allRangeLabel; 
-                        let problemsToUse = categoryProblems.slice(); // 全問題をコピー
-                        
-                        // Weak Pointsモード: 間違えた問題だけをフィルタリング
-                        if (isWeakPointsMode) {
-                            problemsToUse = problemsToUse.filter(q => {
-                                const stats = questionStats[q.id];
-                                return stats && stats.total > 0 && stats.correct < stats.total;
-                            });
-                        }
-                        
-                        quizData = problemsToUse; 
-                        startQuiz(); 
-                    };
-                    eContent.appendChild(allBtn);
-                    
-                    // 通常の範囲選択（10問ずつ）
-                    for(let i=0; i<categoryProblems.length; i+=10) {
-                        const rangeLabel = `${i+1}-${Math.min(i+10, categoryProblems.length)}`;
-                        
-                        // この範囲の問題セットの履歴を取得
-                        const rangeHistory = userHistory.filter(h => 
-                            h.summaryEra === categoryName && h.summaryRange === rangeLabel
-                        );
-                        const attemptCount = rangeHistory.length;
-                        let lastAttemptDate = '';
-                        if (rangeHistory.length > 0) {
-                            // 最新の日付を取得
-                            const latest = rangeHistory.sort((a, b) => b.timestamp - a.timestamp)[0];
-                            if (latest.date) {
-                                const dateStr = latest.date;
-                                // 日付を整形（例: "01/15" → "1/15", "01/05" → "1/5"）
-                                const parts = dateStr.split('/');
-                                lastAttemptDate = `${parseInt(parts[0])}/${parseInt(parts[1])}`;
-                            }
-                        }
-                        
-                        const btn = document.createElement('button'); 
-                        btn.className = "bg-white/5 p-1.5 rounded-lg text-[8px] font-black min-h-[42px] flex flex-col items-center justify-center gap-0.5";
-                        
-                        // ボタンの内容を構築
-                        let btnContent = `<span class="text-[9px]">${rangeLabel}</span>`;
-                        if (attemptCount > 0) {
-                            btnContent += `<span class="text-[7px] text-cyan-400 opacity-70">${attemptCount}回</span>`;
-                            if (lastAttemptDate) {
-                                btnContent += `<span class="text-[7px] text-slate-400 opacity-60">${lastAttemptDate}</span>`;
-                            }
-                        }
-                        btn.innerHTML = btnContent;
-                        
-                        btn.onclick = () => { 
-                            currentSessionEra = categoryName; 
-                            currentSessionRangeLabel = rangeLabel; 
-                            let problemsToUse = categoryProblems.slice(i, i+10);
-                            
-                            // Weak Pointsモード: 間違えた問題だけをフィルタリング
-                            if (isWeakPointsMode) {
-                                problemsToUse = problemsToUse.filter(q => {
-                                    const stats = questionStats[q.id];
-                                    return stats && stats.total > 0 && stats.correct < stats.total;
-                                });
-                            }
-                            
-                            quizData = problemsToUse; 
-                            startQuiz(); 
-                        };
-                        eContent.appendChild(btn);
-                    }
-                } else { 
-                    eContent.innerHTML = '<div class="col-span-4 text-[8px] opacity-30 text-center py-2">NO DATA</div>'; 
-                }
-                
-                eHeader.onclick = (ev) => { 
-                    ev.stopPropagation(); 
-                    eContent.classList.toggle('expanded'); 
+                eHeader.onclick = () => {
+                    if (categoryProblems.length === 0) return;
+                    currentSessionEra = categoryName;
+                    currentSessionRangeLabel = `ALL(${categoryProblems.length})`;
+                    quizData = categoryProblems.slice();
+                    startQuiz();
                 };
                 
-                container.appendChild(eHeader); 
-                container.appendChild(eContent);
+                container.appendChild(eHeader);
             });
             
             // Weak Pointsモード用のUIを追加
@@ -1972,7 +1870,15 @@
                 btn.onclick = () => handleAnswer(opt, btn); 
                 oc.appendChild(btn); 
             }); 
-            getEl('feedback-area').classList.add('hidden'); window.scrollTo({ top: 0, behavior: 'smooth' }); 
+            getEl('feedback-area').classList.add('hidden');
+            // 確実に画面上部へスクロール（複数手段を併用）
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            document.body.scrollTop = 0;          // Safari 対応
+            document.documentElement.scrollTop = 0; // その他ブラウザ対応
+            // 念のため遅延して再スクロール
+            setTimeout(() => {
+                window.scrollTo({ top: 0, behavior: 'auto' });
+            }, 50);
         }
         
         async function handleAnswer(selected, btn) { 
@@ -2403,7 +2309,18 @@
             const savedTheme = localStorage.getItem('ethics_theme_mode') || 'modeA';
             applyTheme(savedTheme);
             window.syncAllFromSpreadsheet(true); 
-            setOnClick('next-btn-action', () => { currentIdx++; if (currentIdx < quizData.length) showQuestion(); else finishSession(); }); 
+            setOnClick('next-btn-action', () => {
+                currentIdx++;
+                if (currentIdx < quizData.length) {
+                    // 問題表示前に必ずスクロール
+                    window.scrollTo({ top: 0, behavior: 'auto' });
+                    document.body.scrollTop = 0;
+                    document.documentElement.scrollTop = 0;
+                    showQuestion();
+                } else {
+                    finishSession();
+                }
+            });
             setOnClick('sync-all-btn-action', () => window.syncAllFromSpreadsheet(false)); 
             setOnClick('cloud-sync-toggle-btn', () => { const area = getEl('sync-area'); if (area) area.classList.toggle('hidden'); }); 
         };
