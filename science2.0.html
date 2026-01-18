@@ -394,6 +394,7 @@
         let masterDataTotal = [];
         let quizData = []; let currentIdx = 0; let score = 0; let streak = 0;
         let canAnswer = true; let chartInstance = null;
+        let chartScriptLoading = null;
         let sessionAnswers = [];
         let isRankingPublic = true; // ランキング公開設定（デフォルトは公開）
         let isQuestionShuffleEnabled = false; // 問題シャッフル設定（デフォルトはOFF）
@@ -1377,7 +1378,26 @@
             } catch (err) { console.error("Stats Error:", err); }
         }
 
+        function ensureChartJsLoaded() {
+            if (window.Chart) return Promise.resolve();
+            if (chartScriptLoading) return chartScriptLoading;
+            chartScriptLoading = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('Chart.js load failed'));
+                document.head.appendChild(script);
+            });
+            return chartScriptLoading;
+        }
+
         function renderPerformanceChart(history) {
+            if (!window.Chart) {
+                ensureChartJsLoaded()
+                    .then(() => renderPerformanceChart(history))
+                    .catch((err) => console.error('Chart.js load error:', err));
+                return;
+            }
             const ctx = getEl('performanceChart')?.getContext('2d');
             if (!ctx) return; if (chartInstance) chartInstance.destroy();
             const sortedData = [...history].sort((a, b) => a.timestamp - b.timestamp);
