@@ -236,6 +236,7 @@
                 </div>
                 <div class="flex flex-wrap justify-center md:justify-start items-center gap-2">
                     <button id="user-status-display" class="bg-white/10 text-white text-[10px] px-4 py-1 rounded-full border border-white/20 font-black italic cursor-pointer transition-all hover:opacity-80">status</button>
+                    <button id="logout-btn" class="bg-white/10 text-white text-[10px] px-3 py-1 rounded-full border border-white/20 font-black italic cursor-pointer transition-all hover:opacity-80">LOGOUT</button>
                     <span id="last-attempt-display" class="bg-cyan-500/20 text-cyan-200 text-[9px] px-3 py-1 rounded-full border border-cyan-400/40 font-medium"></span>
                 </div>
             </div>
@@ -722,8 +723,12 @@
             return Math.round(n) + "%";
         }
 
+        function normalizeUserName(name) {
+            return name ? name.normalize('NFKC').trim() : '';
+        }
+
         function initUserInfo() { 
-            USER_NAME = localStorage.getItem('ethics_user_name') || '';
+            USER_NAME = normalizeUserName(localStorage.getItem('ethics_user_name') || '');
             USER_CLASS = localStorage.getItem('ethics_user_class') || '';
             USER_NUMBER = localStorage.getItem('ethics_user_number') || '';
             // ローカルストレージからstatusメッセージを読み込む
@@ -749,8 +754,14 @@
             const displayEl = getEl('active-user-display');
             if (displayEl) {
                 // 名前の横に公開/非公開を小さく英語で表示
-                const publicLabel = isRankingPublic ? '<span class="text-[7px] text-amber-400/70 font-normal ml-1">PUBLIC</span>' : '<span class="text-[7px] text-slate-300/80 font-normal ml-1">PRIVATE</span>';
-                displayEl.innerHTML = USER_NAME + publicLabel;
+                const publicLabel = isRankingPublic ? 'PUBLIC' : 'PRIVATE';
+                const labelSpan = document.createElement('span');
+                labelSpan.className = isRankingPublic ? 'text-[7px] text-amber-400/70 font-normal ml-1' : 'text-[7px] text-slate-300/80 font-normal ml-1';
+                labelSpan.textContent = publicLabel;
+                const nameText = USER_NAME ? USER_NAME : '未登録';
+                const labelText = USER_CLASS && USER_NUMBER ? `${USER_CLASS}-${USER_NUMBER} ` : '';
+                displayEl.textContent = `${labelText}${nameText}`;
+                displayEl.appendChild(labelSpan);
                 // 公開設定に応じてスタイルを変更（光らせる=公開）
                 if (isRankingPublic) {
                     displayEl.classList.add('bg-amber-500/30', 'border-amber-400/50', 'text-amber-200', 'shadow-lg', 'shadow-amber-500/50');
@@ -894,8 +905,29 @@
             }
         };
         
+        window.logoutUser = async () => {
+            if (!confirm('ログアウトしますか？')) return;
+            USER_NAME = '';
+            USER_CLASS = '';
+            USER_NUMBER = '';
+            USER_STATUS = '';
+            isRankingPublic = true;
+            userHistory = [];
+            questionStats = {};
+            localStorage.removeItem('ethics_user_name');
+            localStorage.removeItem('ethics_user_class');
+            localStorage.removeItem('ethics_user_number');
+            localStorage.removeItem('ethics_user_status');
+            localStorage.removeItem('ethics_ranking_public');
+            updateUserDisplay();
+            updateStatusDisplay();
+            updateShuffleDisplay();
+            getEl('registration-modal').classList.add('active');
+            await window.syncAllFromSpreadsheet(true);
+        };
+
         setOnClick('register-btn', () => {
-            const nameVal = getEl('user-name-input').value.trim();
+            const nameVal = normalizeUserName(getEl('user-name-input').value.trim());
             const classVal = getEl('user-class-select').value;
             const numberVal = getEl('user-number-input').value.trim();
             
@@ -939,6 +971,7 @@
             window.syncAllFromSpreadsheet(true);
         });
         setOnClick('active-user-display', toggleRankingPublic);
+        setOnClick('logout-btn', window.logoutUser);
         setOnClick('user-status-display', window.openStatusModal);
         setOnClick('question-shuffle-display', toggleQuestionShuffle);
         setOnClick('status-custom-save-btn', window.saveCustomStatus);
