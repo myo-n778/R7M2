@@ -1712,6 +1712,17 @@
             console.log('表示するカテゴリ順序:', categories);
             
             const level = getEl('level-select').value;
+            const eraSessionStats = {};
+            if (Array.isArray(userHistory) && userHistory.length > 0) {
+                userHistory.forEach((h) => {
+                    const eraKey = String(h.summaryEra || '').trim();
+                    if (!eraKey) return;
+                    if (!eraSessionStats[eraKey]) eraSessionStats[eraKey] = { count: 0, lastTs: 0 };
+                    eraSessionStats[eraKey].count += 1;
+                    const ts = Number(h.timestamp) || 0;
+                    if (ts > eraSessionStats[eraKey].lastTs) eraSessionStats[eraKey].lastTs = ts;
+                });
+            }
             
             // 各分野（シート名）を表示
             categories.forEach((categoryName) => {
@@ -1726,7 +1737,22 @@
                 
                 const eHeader = document.createElement('div'); 
                 eHeader.className = 'era-header'; 
-                eHeader.innerHTML = `<span>${categoryName} <small class="opacity-50">(${categoryProblems.length})</small></span><i class="fas fa-chevron-right text-[10px]"></i>`;
+                const sessionInfo = eraSessionStats[categoryName] || { count: 0, lastTs: 0 };
+                let lastDateDisplay = '--';
+                if (sessionInfo.lastTs > 0) {
+                    const d = new Date(sessionInfo.lastTs);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    lastDateDisplay = `${y}/${m}/${day}`;
+                }
+                eHeader.innerHTML = `
+                    <div class="flex flex-col min-w-0">
+                        <span>${categoryName} <small class="opacity-50">(${categoryProblems.length})</small></span>
+                        <span class="text-[10px] text-slate-400">解いた回数: ${sessionInfo.count}回 | 最終: ${lastDateDisplay}</span>
+                    </div>
+                    <i class="fas fa-chevron-right text-[10px]"></i>
+                `;
                 eHeader.onclick = () => {
                     if (categoryProblems.length === 0) return;
                     currentSessionEra = categoryName;
