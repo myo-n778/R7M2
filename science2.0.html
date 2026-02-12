@@ -280,7 +280,11 @@
                         <option value="advanced">上級 (全レベル演習)</option>
                         <option value="all" selected>ALL (制限なし表示)</option>
                     </select>
-                    <div id="era-menu-container" class="space-y-1.5 overflow-y-auto pr-1 flex-grow max-h-[600px]"></div>
+                    <div class="relative flex-grow">
+                        <div id="era-menu-container" class="space-y-1.5 overflow-y-auto pr-1 max-h-[600px]"></div>
+                        <div id="era-scroll-fade" class="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-black/80 to-transparent hidden"></div>
+                    </div>
+                    <div id="era-scroll-hint" class="hidden text-[10px] text-slate-400 text-center">↓ 項目はスクロールできます</div>
                 </div>
             </div>
             
@@ -1752,7 +1756,8 @@
                 eHeader.innerHTML = `
                     <div class="flex flex-col min-w-0">
                         <span>${categoryName} <small class="opacity-50">(${categoryProblems.length})</small></span>
-                        <span class="text-[10px] text-slate-400">解いた回数: ${sessionInfo.count}回 | 最終: ${lastDateDisplay}</span>
+                        <span class="text-[10px] text-slate-400 leading-tight">解いた回数: ${sessionInfo.count}回</span>
+                        <span class="text-[10px] text-slate-400 leading-tight">最終: ${lastDateDisplay}</span>
                     </div>
                     <i class="fas fa-chevron-right text-[10px]"></i>
                 `;
@@ -1766,6 +1771,7 @@
                 
                 container.appendChild(eHeader);
             });
+            setTimeout(window.updateEraMenuScrollHint, 0);
             
             // Weak Pointsモード用のUIを追加
             if (isWeakPointsMode) {
@@ -1798,6 +1804,24 @@
                 weakPointsContainer.appendChild(startWeakPointsBtn);
                 container.appendChild(weakPointsContainer);
             }
+        };
+        
+        window.updateEraMenuScrollHint = () => {
+            const menu = getEl('era-menu-container');
+            const hint = getEl('era-scroll-hint');
+            const fade = getEl('era-scroll-fade');
+            if (!menu || !hint || !fade) return;
+            
+            const hasOverflow = menu.scrollHeight > menu.clientHeight + 2;
+            if (!hasOverflow) {
+                hint.classList.add('hidden');
+                fade.classList.add('hidden');
+                return;
+            }
+            
+            hint.classList.remove('hidden');
+            const nearBottom = menu.scrollTop + menu.clientHeight >= menu.scrollHeight - 4;
+            fade.classList.toggle('hidden', nearBottom);
         };
         
         // Weak Pointsモード用の問題選択関数
@@ -2410,6 +2434,9 @@
             const savedTheme = localStorage.getItem('ethics_theme_mode') || 'modeA';
             applyTheme(savedTheme);
             window.syncAllFromSpreadsheet(true); 
+            const eraMenuEl = getEl('era-menu-container');
+            if (eraMenuEl) eraMenuEl.addEventListener('scroll', window.updateEraMenuScrollHint);
+            window.addEventListener('resize', () => setTimeout(window.updateEraMenuScrollHint, 0));
             setOnClick('next-btn-action', () => {
                 currentIdx++;
                 if (currentIdx < quizData.length) {
