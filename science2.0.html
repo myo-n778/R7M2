@@ -1962,7 +1962,15 @@
             const statKey = q.id;
             const qs = questionStats[statKey] || { total: 0, correct: 0 }; 
             if(getEl('q-history-stat')) getEl('q-history-stat').innerText = `${qs.total === 0 ? 0 : Math.round((qs.correct / qs.total) * 100)}% (${qs.correct}/${qs.total})`; 
-            let qText = q.question.replace(/正しい/g, '<span class="text-emerald-400 font-bold">正しい</span>').replace(/誤っている/g, '<span class="text-rose-400 font-bold">誤っている</span>').replace(/^<br>/, '').replace(/^\s+/, ''); // 最初の行の先頭の<br>と空白を削除
+            let qText = q.question
+                .replace(/適切でないもの/g, '<span class="text-rose-400 font-bold">適切でないもの</span>')
+                .replace(/適切なもの/g, '<span class="text-emerald-400 font-bold">適切なもの</span>')
+                .replace(/誤っているもの/g, '<span class="text-rose-400 font-bold">誤っているもの</span>')
+                .replace(/正しいもの/g, '<span class="text-emerald-400 font-bold">正しいもの</span>')
+                .replace(/正しい/g, '<span class="text-emerald-400 font-bold">正しい</span>')
+                .replace(/誤っている/g, '<span class="text-rose-400 font-bold">誤っている</span>')
+                .replace(/^<br>/, '')
+                .replace(/^\s+/, ''); // 最初の行の先頭の<br>と空白を削除
             const questionEl = getEl('question-text');
             questionEl.innerHTML = qText;
             // KaTeXで数式をレンダリング（DOM更新後に実行）
