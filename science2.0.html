@@ -345,7 +345,7 @@
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="bg-slate-900/90 p-4 rounded-xl border-l-4" style="border-color: var(--accent-primary)"><p class="text-[8px] text-slate-500 font-black uppercase mb-1">Accuracy</p><p class="text-2xl font-flashy" style="color: var(--accent-primary)"><span id="final-score">0</span>%</p></div>
-                    <div class="bg-slate-900/90 p-4 rounded-xl border-l-4 border-amber-500"><p class="text-[8px] text-slate-500 font-black uppercase mb-1">EXP Gained</p><p id="final-exp-gained" class="text-2xl font-flashy text-amber-400">0</p></div>
+                    <div class="bg-slate-900/90 p-4 rounded-xl border-l-4 border-amber-500"><p class="text-[8px] text-slate-500 font-black uppercase mb-1">EXP Gained</p><p id="final-exp-gained" class="text-2xl font-flashy text-amber-400">0</p><p id="final-exp-note" class="text-[10px] text-slate-400 mt-1 min-h-[14px]"></p></div>
                 </div>
                 <button onclick="window.showHome()" class="w-full text-white font-black py-4 rounded-2xl text-lg uppercase tracking-widest" style="background: var(--accent-primary)">Back to Hub</button>
             </div>
@@ -385,7 +385,7 @@
 
     <!-- スクリプト部分は以前のものを継続して使用 -->
     <script>
-        const FIXED_GAS_URL = "https://script.google.com/macros/s/AKfycbwmT2cqoGpBXtFil7pxQO1G1r2gkASwsI5gguXXCsXSGSG1HbiUwxaursRA1fodko-YAg/exec";
+        const FIXED_GAS_URL = "https://script.google.com/macros/s/AKfycbx-YdudpSuhkU04MhbuEn-jcVivUJapLUeKD76nlpfEZJWLPdtYhVwMvR0QBO0ZLC5YBQ/exec";
         const FIXED_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1iKHBg4JENpWY7itjRiHjUeQuxEx1a_6xL0Kn3xEV6II/edit";
 
         let USER_NAME = "";
@@ -989,12 +989,12 @@
         }
 
         async function logDetailedResultsToSpreadsheet(pct, correct, total) {
-            if (!FIXED_GAS_URL) return;
+            if (!FIXED_GAS_URL) return null;
             // 入力フィールドからURLを取得
             const urlInput = getEl('main-spreadsheet-url');
             const spreadsheetUrl = urlInput && urlInput.value ? urlInput.value : FIXED_SPREADSHEET_URL;
             const sid = spreadsheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-            if (!sid) return;
+            if (!sid) return null;
             
             // ユーザーIDの生成（クラス-番号-名前形式）
             const userId = `${USER_CLASS}-${USER_NUMBER}-${USER_NAME}`;
@@ -1016,7 +1016,13 @@
                 isPublic: isRankingPublic ? '1' : '0', 
                 status: USER_STATUS || '' 
             };
-            try { await fetchWithRetry(`${FIXED_GAS_URL}?${new URLSearchParams(payload).toString()}`); window.syncAllFromSpreadsheet(true); } catch (e) {}
+            try {
+                const result = await fetchWithRetry(`${FIXED_GAS_URL}?${new URLSearchParams(payload).toString()}`);
+                window.syncAllFromSpreadsheet(true);
+                return result;
+            } catch (e) {
+                return null;
+            }
         }
 
         function updateStatsUI() {
@@ -2086,7 +2092,24 @@
             const oldLv = Math.floor(oldExp / 10);
             getEl('quiz-screen').classList.add('hidden'); getEl('result-screen').classList.remove('hidden');
             const pct = Math.round((score / quizData.length) * 100); 
-            logDetailedResultsToSpreadsheet(pct, score, quizData.length);
+            const lvUpMsg = getEl('level-up-msg');
+            if (lvUpMsg) lvUpMsg.classList.add('hidden');
+            const expNoteEl = getEl('final-exp-note');
+            if (expNoteEl) expNoteEl.innerText = '';
+            getEl('final-exp-gained').innerText = score;
+            logDetailedResultsToSpreadsheet(pct, score, quizData.length).then((logResult) => {
+                const appliedExpRaw = parseInt(logResult && logResult.appliedExp);
+                const appliedExp = Number.isFinite(appliedExpRaw) ? appliedExpRaw : score;
+                getEl('final-exp-gained').innerText = appliedExp;
+                if (expNoteEl) {
+                    expNoteEl.innerText = (logResult && logResult.expReason) ? `※ ${logResult.expReason}` : '';
+                }
+                const newLv = Math.floor((oldExp + appliedExp) / 10);
+                if (lvUpMsg) {
+                    if (newLv > oldLv) lvUpMsg.classList.remove('hidden');
+                    else lvUpMsg.classList.add('hidden');
+                }
+            });
             
             // 復習システムの情報をローカルストレージに保存
             try {
@@ -2094,11 +2117,7 @@
             } catch (e) {
                 console.error('復習システムの情報の保存に失敗しました:', e);
             }
-            getEl('final-score').innerText = pct; getEl('final-exp-gained').innerText = score;
-            const newExp = oldExp + score;
-            const newLv = Math.floor(newExp / 10);
-            const lvUpMsg = getEl('level-up-msg');
-            if (newLv > oldLv) { if (lvUpMsg) lvUpMsg.classList.remove('hidden'); } else { if (lvUpMsg) lvUpMsg.classList.add('hidden'); }
+            getEl('final-score').innerText = pct;
             const goalMsg = getEl('goal-eval-msg');
             if (pct >= selectedGoal) {
                 goalMsg.innerText = "MISSION ACCOMPLISHED: Target Attained";

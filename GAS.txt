@@ -25,6 +25,33 @@ return returnJson({ error: "エラーが発生しました: " + err.toString() }
 }
 }
 
+const EXP_PERFECT_CAP_PER_SET = 5;
+const EXP_DAILY_GRANT_LIMIT = 2;
+
+function parseAccuracyToPercent(val) {
+if (val === "" || val === null || val === undefined) return null;
+let str = String(val).replace('%', '').trim();
+let num = parseFloat(str);
+if (isNaN(num)) return null;
+if (num <= 1.0 && num > 0 && String(val).indexOf('%') === -1) return num * 100;
+return num;
+}
+
+function toDateKeyJST(value) {
+if (!value) return '';
+try {
+  const dateObj = (value instanceof Date) ? value : new Date(value);
+  if (isNaN(dateObj.getTime())) return '';
+  return Utilities.formatDate(dateObj, "JST", "yyyy/MM/dd");
+} catch (e) {
+  return '';
+}
+}
+
+function buildSetKey(era, range) {
+return String(era || '').trim() + '::' + String(range || '').trim();
+}
+
 function handleLogAll(p) {
 try {
 if (!p.spreadsheetId || p.spreadsheetId.trim() === '') {
@@ -61,7 +88,38 @@ if (hData.length > 1) {
   }
 }
 
-const gainedExp = parseInt(p.gainedExp) || 0;
+const requestedExp = parseInt(p.gainedExp) || 0;
+const todayKey = Utilities.formatDate(now, "JST", "yyyy/MM/dd");
+const currentSetKey = buildSetKey(p.summaryEra, p.summaryRange);
+const isCurrentPerfect = (Math.round(parseAccuracyToPercent(p.summaryAccuracy) || 0) === 100);
+
+let perfectCountForCurrentSet = 0;
+let expGrantedCountToday = 0;
+for (let i = 0; i < userRows.length; i++) {
+  const row = userRows[i];
+  const rowHasNewFormat = row.length >= 18;
+  const gainedExpIndex = rowHasNewFormat ? 9 : 8;
+  const rowGainedExp = parseInt(row[gainedExpIndex]) || 0;
+  if (toDateKeyJST(row[0]) === todayKey && rowGainedExp > 0) {
+    expGrantedCountToday++;
+  }
+
+  const rowSetKey = buildSetKey(row[1], row[2]);
+  const rowAccuracy = Math.round(parseAccuracyToPercent(row[3]) || 0);
+  if (rowSetKey === currentSetKey && rowAccuracy === 100) {
+    perfectCountForCurrentSet++;
+  }
+}
+
+let gainedExp = requestedExp;
+const expReasonParts = [];
+if (gainedExp > 0 && expGrantedCountToday >= EXP_DAILY_GRANT_LIMIT) {
+  gainedExp = 0;
+  expReasonParts.push("1日2回まで");
+} else if (isCurrentPerfect && perfectCountForCurrentSet >= EXP_PERFECT_CAP_PER_SET) {
+  expReasonParts.push("同一セット満点5回達成済み（1日2回枠で加算）");
+}
+
 let lastCumulativeExp = 0;
 if (userRows.length > 0) {
   // 列インデックスの調整：新形式（クラス・番号列あり）では累計EXPは列10（index 10）、旧形式では列9（index 9）
@@ -72,20 +130,11 @@ if (userRows.length > 0) {
 }
 const newTotalExp = lastCumulativeExp + gainedExp;
 
-const parseAcc = (val) => {
-  if (val === "" || val === null || val === undefined) return null;
-  let str = String(val).replace('%', '').trim();
-  let num = parseFloat(str);
-  if (isNaN(num)) return null;
-  if (num <= 1.0 && num > 0 && String(val).indexOf('%') === -1) return num * 100;
-  return num;
-};
-
-const thisAcc = parseAcc(p.summaryAccuracy) || 0;
-const validPastAccsOverall = userRows.slice(-9999).map(r => parseAcc(r[3])).filter(v => v !== null);
+const thisAcc = parseAccuracyToPercent(p.summaryAccuracy) || 0;
+const validPastAccsOverall = userRows.slice(-9999).map(r => parseAccuracyToPercent(r[3])).filter(v => v !== null);
 const overallAccStr = Math.round(([...validPastAccsOverall, thisAcc].reduce((a, b) => a + b, 0)) / (validPastAccsOverall.length + 1)) + "%";
 
-const validPastAccs10 = userRows.slice(-9).map(r => parseAcc(r[3])).filter(v => v !== null);
+const validPastAccs10 = userRows.slice(-9).map(r => parseAccuracyToPercent(r[3])).filter(v => v !== null);
 const avg10AccStr = Math.round(([...validPastAccs10, thisAcc].reduce((a, b) => a + b, 0)) / (validPastAccs10.length + 1)) + "%";
 
 // 詳細履歴と統計DBの更新（先に実行してから連続正解数を計算）
@@ -169,7 +218,13 @@ details.forEach(d => {
   }
 });
 
-return returnJson({ status: "success", newTotalExp: newTotalExp });
+return returnJson({
+  status: "success",
+  newTotalExp: newTotalExp,
+  requestedExp: requestedExp,
+  appliedExp: gainedExp,
+  expReason: expReasonParts.join(" / ")
+});
 
 
 } catch (err) { return returnJson({ status: "error", message: err.toString() }); }
@@ -753,4 +808,3 @@ function updateOverallSummarySheet(ss) {
 }
 
 function returnJson(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
-
