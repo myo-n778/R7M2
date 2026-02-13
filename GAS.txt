@@ -93,31 +93,32 @@ const todayKey = Utilities.formatDate(now, "JST", "yyyy/MM/dd");
 const currentSetKey = buildSetKey(p.summaryEra, p.summaryRange);
 const isCurrentPerfect = (Math.round(parseAccuracyToPercent(p.summaryAccuracy) || 0) === 100);
 
-let perfectCountForCurrentSet = 0;
-let expGrantedCountToday = 0;
+let perfectCountForCurrentSetToday = 0;
+let expGrantedCountForCurrentSetToday = 0;
 for (let i = 0; i < userRows.length; i++) {
   const row = userRows[i];
   const rowHasNewFormat = row.length >= 18;
   const gainedExpIndex = rowHasNewFormat ? 9 : 8;
   const rowGainedExp = parseInt(row[gainedExpIndex]) || 0;
-  if (toDateKeyJST(row[0]) === todayKey && rowGainedExp > 0) {
-    expGrantedCountToday++;
-  }
-
+  const rowDateKey = toDateKeyJST(row[0]);
   const rowSetKey = buildSetKey(row[1], row[2]);
+  if (rowDateKey === todayKey && rowSetKey === currentSetKey && rowGainedExp > 0) {
+    expGrantedCountForCurrentSetToday++;
+  }
   const rowAccuracy = Math.round(parseAccuracyToPercent(row[3]) || 0);
-  if (rowSetKey === currentSetKey && rowAccuracy === 100) {
-    perfectCountForCurrentSet++;
+  if (rowDateKey === todayKey && rowSetKey === currentSetKey && rowAccuracy === 100) {
+    perfectCountForCurrentSetToday++;
   }
 }
 
 let gainedExp = requestedExp;
 const expReasonParts = [];
-if (gainedExp > 0 && expGrantedCountToday >= EXP_DAILY_GRANT_LIMIT) {
+if (isCurrentPerfect && perfectCountForCurrentSetToday >= EXP_PERFECT_CAP_PER_SET) {
   gainedExp = 0;
-  expReasonParts.push("1日2回まで");
-} else if (isCurrentPerfect && perfectCountForCurrentSet >= EXP_PERFECT_CAP_PER_SET) {
-  expReasonParts.push("同一セット満点5回達成済み（1日2回枠で加算）");
+  expReasonParts.push("同一セット満点は1日5回まで");
+} else if (gainedExp > 0 && expGrantedCountForCurrentSetToday >= EXP_DAILY_GRANT_LIMIT) {
+  gainedExp = 0;
+  expReasonParts.push("同一セットのEXP加算は1日2回まで");
 }
 
 let lastCumulativeExp = 0;
