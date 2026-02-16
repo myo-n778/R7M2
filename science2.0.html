@@ -274,12 +274,6 @@
 
                 <div class="glass-panel rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-8 space-y-6 flex flex-col">
                     <label class="text-[10px] font-black uppercase italic" style="color: var(--accent-primary)">Session Library</label>
-                    <select id="level-select" class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-xs font-bold outline-none" style="color: var(--accent-primary)" onchange="window.renderEraMenu()">
-                        <option value="elementary">初級 (基礎・標準)</option>
-                        <option value="intermediate">中級 (基礎・標準・応用)</option>
-                        <option value="advanced">上級 (全レベル演習)</option>
-                        <option value="all" selected>ALL (制限なし表示)</option>
-                    </select>
                     <div class="relative flex-grow">
                         <div id="era-menu-container" class="space-y-1.5 overflow-y-auto pr-1 max-h-[600px]"></div>
                         <div id="era-scroll-fade" class="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-black/80 to-transparent hidden"></div>
@@ -1735,14 +1729,11 @@
             
             console.log('表示するカテゴリ順序:', categories);
             
-            const level = getEl('level-select').value;
             const eraSessionStats = buildEraSessionStats(userHistory);
             
             // 各分野（シート名）を表示
             categories.forEach((categoryName) => {
                 let categoryProblems = masterDataTotal.filter(d => d.era === categoryName);
-                if (level === 'elementary') categoryProblems = categoryProblems.filter(q => ['基礎', '標準'].includes(q.tag));
-                else if (level === 'intermediate') categoryProblems = categoryProblems.filter(q => ['基礎', '標準', '応用'].includes(q.tag));
                 
                 // Weak Pointsモードの場合は、通常のメニュー表示をスキップ（後で専用UIを表示）
                 if (isWeakPointsMode) {
