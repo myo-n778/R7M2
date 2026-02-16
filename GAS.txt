@@ -32,9 +32,6 @@ var SCIENCE_EXP_CONFIG = globalThis.SCIENCE_EXP_CONFIG || {
 };
 globalThis.SCIENCE_EXP_CONFIG = SCIENCE_EXP_CONFIG;
 
-var EXP_PERFECT_CAP_PER_SET = Number(SCIENCE_EXP_CONFIG.perSetPerfectCap) || 5;
-var EXP_DAILY_GRANT_LIMIT = Number(SCIENCE_EXP_CONFIG.dailyGrantLimit) || 2;
-
 function parseAccuracyToPercent(val) {
 if (val === "" || val === null || val === undefined) return null;
 let str = String(val).replace('%', '').trim();
@@ -99,6 +96,8 @@ const requestedExp = parseInt(p.gainedExp) || 0;
 const todayKey = Utilities.formatDate(now, "JST", "yyyy/MM/dd");
 const currentSetKey = buildSetKey(p.summaryEra, p.summaryRange);
 const isCurrentPerfect = (Math.round(parseAccuracyToPercent(p.summaryAccuracy) || 0) === 100);
+const perSetPerfectCap = Number((globalThis.SCIENCE_EXP_CONFIG || {}).perSetPerfectCap) || 5;
+const dailyGrantLimit = Number((globalThis.SCIENCE_EXP_CONFIG || {}).dailyGrantLimit) || 2;
 
 let perfectCountForCurrentSetToday = 0;
 let expGrantedCountForCurrentSetToday = 0;
@@ -120,10 +119,10 @@ for (let i = 0; i < userRows.length; i++) {
 
 let gainedExp = requestedExp;
 const expReasonParts = [];
-if (isCurrentPerfect && perfectCountForCurrentSetToday >= EXP_PERFECT_CAP_PER_SET) {
+if (isCurrentPerfect && perfectCountForCurrentSetToday >= perSetPerfectCap) {
   gainedExp = 0;
   expReasonParts.push("同一セット満点は1日5回まで");
-} else if (gainedExp > 0 && expGrantedCountForCurrentSetToday >= EXP_DAILY_GRANT_LIMIT) {
+} else if (gainedExp > 0 && expGrantedCountForCurrentSetToday >= dailyGrantLimit) {
   gainedExp = 0;
   expReasonParts.push("同一セットのEXP加算は1日2回まで");
 }
