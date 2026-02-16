@@ -25,8 +25,15 @@ return returnJson({ error: "エラーが発生しました: " + err.toString() }
 }
 }
 
-const EXP_PERFECT_CAP_PER_SET = 5;
-const EXP_DAILY_GRANT_LIMIT = 2;
+// Apps Scriptで同名定数の重複宣言エラーを避けるため、設定はglobalThisに集約する
+var SCIENCE_EXP_CONFIG = globalThis.SCIENCE_EXP_CONFIG || {
+  perSetPerfectCap: 5,
+  dailyGrantLimit: 2
+};
+globalThis.SCIENCE_EXP_CONFIG = SCIENCE_EXP_CONFIG;
+
+var EXP_PERFECT_CAP_PER_SET = Number(SCIENCE_EXP_CONFIG.perSetPerfectCap) || 5;
+var EXP_DAILY_GRANT_LIMIT = Number(SCIENCE_EXP_CONFIG.dailyGrantLimit) || 2;
 
 function parseAccuracyToPercent(val) {
 if (val === "" || val === null || val === undefined) return null;
