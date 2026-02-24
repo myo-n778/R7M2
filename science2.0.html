@@ -745,6 +745,15 @@
             return Math.round(n) + "%";
         }
 
+        function isSystemOrConfigSheetName(name) {
+            const normalized = String(name || '').replace(/\u3000/g, ' ').trim();
+            if (!normalized) return true;
+            const exactNames = new Set(['履歴ログ', '詳細履歴ログ', '問題別統計DB', '成績一覧', 'メンバー一覧', '設定']);
+            if (exactNames.has(normalized)) return true;
+            const lower = normalized.toLowerCase();
+            return ['config', 'settings', '_config', '_settings'].includes(lower);
+        }
+
         function initUserInfo() { 
             USER_NAME = normalizeUserName(localStorage.getItem('ethics_user_name') || '');
             USER_CLASS = localStorage.getItem('ethics_user_class') || '';
@@ -1655,6 +1664,10 @@
             
             // CSV形式とTSV形式を自動判別してパース
             masterDataTotal = Object.entries(storedTSV).flatMap(([category, data]) => {
+                if (isSystemOrConfigSheetName(category)) {
+                    console.log(`システム/設定シート "${category}" は表示対象から除外`);
+                    return [];
+                }
                 if (!data || data.trim() === '') {
                     console.warn(`カテゴリ "${category}" のデータが空です`);
                     return [];
@@ -1685,7 +1698,7 @@
             // GASスクリプトから取得したシート名がstoredTSVのキーとして含まれている
             // 指定された順序で表示（スプレッドシートの実際のシート名を優先）
             // 全てのシート名を取得（スプレッドシートから動的に取得）
-            const allSheetNames = Object.keys(storedTSV);
+            const allSheetNames = Object.keys(storedTSV).filter(name => !isSystemOrConfigSheetName(name));
             console.log('取得したシート名:', allSheetNames);
             console.log('masterDataTotalの件数:', masterDataTotal.length);
             
