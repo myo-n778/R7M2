@@ -28,9 +28,51 @@ return returnJson({ error: "エラーが発生しました: " + err.toString() }
 // Apps Scriptで同名定数の重複宣言エラーを避けるため、設定はglobalThisに集約する
 var SCIENCE_EXP_CONFIG = globalThis.SCIENCE_EXP_CONFIG || {
   perSetPerfectCap: 5,
-  dailyGrantLimit: 2
+  dailyGrantLimit: 2,
+  disableExpCaps: true
 };
 globalThis.SCIENCE_EXP_CONFIG = SCIENCE_EXP_CONFIG;
+
+// 将来の設定シート連携用ヘルパー（現時点では未使用）
+// 形式: シート名「設定」、A列=キー、B列=値
+function readRuntimeConfigFromSheet(ss) {
+  const defaults = {
+    perSetPerfectCap: Number((globalThis.SCIENCE_EXP_CONFIG || {}).perSetPerfectCap) || 5,
+    dailyGrantLimit: Number((globalThis.SCIENCE_EXP_CONFIG || {}).dailyGrantLimit) || 2,
+    disableExpCaps: !!((globalThis.SCIENCE_EXP_CONFIG || {}).disableExpCaps)
+  };
+  try {
+    const configSheet = ss.getSheetByName("設定");
+    if (!configSheet) return defaults;
+    const values = configSheet.getDataRange().getDisplayValues();
+    if (!values || values.length === 0) return defaults;
+    const map = {};
+    values.forEach(function(row) {
+      const key = String(row[0] || '').trim();
+      if (!key) return;
+      map[key] = String(row[1] || '').trim();
+    });
+    const parseBool = function(v, fallback) {
+      if (!v) return fallback;
+      const s = String(v).trim().toLowerCase();
+      if (["true", "1", "on", "yes", "y"].indexOf(s) >= 0) return true;
+      if (["false", "0", "off", "no", "n"].indexOf(s) >= 0) return false;
+      return fallback;
+    };
+    const parseNum = function(v, fallback) {
+      const n = Number(v);
+      return isNaN(n) ? fallback : n;
+    };
+    return {
+      perSetPerfectCap: parseNum(map.perSetPerfectCap, defaults.perSetPerfectCap),
+      dailyGrantLimit: parseNum(map.dailyGrantLimit, defaults.dailyGrantLimit),
+      disableExpCaps: parseBool(map.disableExpCaps, defaults.disableExpCaps)
+    };
+  } catch (e) {
+    // 設定シート不備では処理を止めず、既定値で継続する
+    return defaults;
+  }
+}
 
 function parseAccuracyToPercent(val) {
 if (val === "" || val === null || val === undefined) return null;
@@ -68,6 +110,7 @@ try {
 } catch (openError) {
   return returnJson({ status: "error", message: "スプレッドシートが見つかりません: " + openError.toString() });
 }
+const runtimeConfig = readRuntimeConfigFromSheet(ss);
 const details = JSON.parse(p.details);
 const now = new Date();
 const timestampStr = Utilities.formatDate(now, "JST", "yyyy/MM/dd HH:mm:ss");
@@ -96,8 +139,9 @@ const requestedExp = parseInt(p.gainedExp) || 0;
 const todayKey = Utilities.formatDate(now, "JST", "yyyy/MM/dd");
 const currentSetKey = buildSetKey(p.summaryEra, p.summaryRange);
 const isCurrentPerfect = (Math.round(parseAccuracyToPercent(p.summaryAccuracy) || 0) === 100);
-const perSetPerfectCap = Number((globalThis.SCIENCE_EXP_CONFIG || {}).perSetPerfectCap) || 5;
-const dailyGrantLimit = Number((globalThis.SCIENCE_EXP_CONFIG || {}).dailyGrantLimit) || 2;
+const perSetPerfectCap = Number(runtimeConfig.perSetPerfectCap) || 5;
+const dailyGrantLimit = Number(runtimeConfig.dailyGrantLimit) || 2;
+const disableExpCaps = !!runtimeConfig.disableExpCaps;
 
 let perfectCountForCurrentSetToday = 0;
 let expGrantedCountForCurrentSetToday = 0;
@@ -119,12 +163,14 @@ for (let i = 0; i < userRows.length; i++) {
 
 let gainedExp = requestedExp;
 const expReasonParts = [];
-if (isCurrentPerfect && perfectCountForCurrentSetToday >= perSetPerfectCap) {
-  gainedExp = 0;
-  expReasonParts.push("同一セット満点は1日5回まで");
-} else if (gainedExp > 0 && expGrantedCountForCurrentSetToday >= dailyGrantLimit) {
-  gainedExp = 0;
-  expReasonParts.push("同一セットのEXP加算は1日2回まで");
+if (!disableExpCaps) {
+  if (isCurrentPerfect && perfectCountForCurrentSetToday >= perSetPerfectCap) {
+    gainedExp = 0;
+    expReasonParts.push("同一セット満点は1日5回まで");
+  } else if (gainedExp > 0 && expGrantedCountForCurrentSetToday >= dailyGrantLimit) {
+    gainedExp = 0;
+    expReasonParts.push("同一セットのEXP加算は1日2回まで");
+  }
 }
 
 let lastCumulativeExp = 0;
@@ -252,7 +298,7 @@ try {
 const result = { problems: {}, userStats: {}, history: [], ranking: [], currentStreak: 0, maxStreak: 0, sheetOrder: [] };
 
 // システム用シートを除外するリスト
-const excludeSheets = ["履歴ログ", "詳細履歴ログ", "問題別統計DB", "成績一覧", "メンバー一覧"];
+const excludeSheets = ["履歴ログ", "詳細履歴ログ", "問題別統計DB", "成績一覧", "メンバー一覧", "設定"];
 
 // 科学版：システム用シート以外のすべてのシートを動的に取得
 // スプレッドシートのシート名（分野名）から自動的に問題データを抽出
