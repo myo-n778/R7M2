@@ -114,6 +114,7 @@ const runtimeConfig = readRuntimeConfigFromSheet(ss);
 const details = JSON.parse(p.details);
 const now = new Date();
 const timestampStr = Utilities.formatDate(now, "JST", "yyyy/MM/dd HH:mm:ss");
+const requestedExp = parseInt(p.gainedExp) || 0;
 const historyHeaders = ["日時", "単元", "範囲", "正解率", "スコア", "ユーザー名", "ユーザーID", "クラス", "番号", "取得EXP", "累計EXP", "10回平均正解率", "通算正答率", "連続正解数", "公開設定", "セッション数", "最終取り組み日", "ステータス"];
 const historySheet = getOrCreateSheet(ss, "履歴ログ", historyHeaders);
 let hData = historySheet.getDataRange().getValues();
@@ -135,7 +136,36 @@ if (hData.length > 1) {
   }
 }
 
-const requestedExp = parseInt(p.gainedExp) || 0;
+// 重複防止（fail-open）: 直近30秒以内に同一ユーザー・同一セット・同一得点の記録があればスキップ
+try {
+  const DUP_WINDOW_MS = 30 * 1000;
+  if (userRows.length > 0) {
+    const lastRow = userRows[userRows.length - 1];
+    const lastTs = new Date(lastRow[0]).getTime();
+    const nowTs = now.getTime();
+    const withinWindow = !isNaN(lastTs) && nowTs >= lastTs && (nowTs - lastTs) <= DUP_WINDOW_MS;
+    const sameSet = String(lastRow[1] || '') === String(p.summaryEra || '') && String(lastRow[2] || '') === String(p.summaryRange || '');
+    const sameScore = String(lastRow[4] || '') === String(p.summaryScore || '');
+    const sameAcc = String(lastRow[3] || '') === String(p.summaryAccuracy || '');
+    if (withinWindow && sameSet && sameScore && sameAcc) {
+      const hasNewFormat = lastRow.length >= 18;
+      const cumulativeExpIndex = hasNewFormat ? 10 : 9;
+      const currentTotalExp = parseInt(lastRow[cumulativeExpIndex]) || 0;
+      return returnJson({
+        status: "duplicate_skipped",
+        message: "30秒以内の同一記録をスキップしました",
+        requestedExp: requestedExp,
+        appliedExp: 0,
+        newTotalExp: currentTotalExp,
+        expReason: "重複記録スキップ"
+      });
+    }
+  }
+} catch (dupCheckError) {
+  // fail-open: 重複判定エラーでも通常記録は継続
+  console.error("重複判定エラー（継続）:", dupCheckError);
+}
+
 const todayKey = Utilities.formatDate(now, "JST", "yyyy/MM/dd");
 const currentSetKey = buildSetKey(p.summaryEra, p.summaryRange);
 const isCurrentPerfect = (Math.round(parseAccuracyToPercent(p.summaryAccuracy) || 0) === 100);
