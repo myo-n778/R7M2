@@ -13,6 +13,7 @@ try {
 const action = e.parameter.action;
 if (action === 'logAll') return handleLogAll(e.parameter);
 if (action === 'updateStatus') return handleUpdateStatus(e.parameter);
+if (action === 'detectDuplicates') return handleDetectDuplicates(e.parameter);
 // syncアクションの場合
 const ssId = e.parameter.id;
 const userId = e.parameter.userId || '';
@@ -39,7 +40,8 @@ function readRuntimeConfigFromSheet(ss) {
   const defaults = {
     perSetPerfectCap: Number((globalThis.SCIENCE_EXP_CONFIG || {}).perSetPerfectCap) || 5,
     dailyGrantLimit: Number((globalThis.SCIENCE_EXP_CONFIG || {}).dailyGrantLimit) || 2,
-    disableExpCaps: !!((globalThis.SCIENCE_EXP_CONFIG || {}).disableExpCaps)
+    disableExpCaps: !!((globalThis.SCIENCE_EXP_CONFIG || {}).disableExpCaps),
+    duplicateLogWindowSec: 60
   };
   try {
     const configSheet = ss.getSheetByName("設定");
@@ -66,7 +68,8 @@ function readRuntimeConfigFromSheet(ss) {
     return {
       perSetPerfectCap: parseNum(map.perSetPerfectCap, defaults.perSetPerfectCap),
       dailyGrantLimit: parseNum(map.dailyGrantLimit, defaults.dailyGrantLimit),
-      disableExpCaps: parseBool(map.disableExpCaps, defaults.disableExpCaps)
+      disableExpCaps: parseBool(map.disableExpCaps, defaults.disableExpCaps),
+      duplicateLogWindowSec: parseNum(map.duplicateLogWindowSec, defaults.duplicateLogWindowSec)
     };
   } catch (e) {
     // 設定シート不備では処理を止めず、既定値で継続する
@@ -98,6 +101,34 @@ function buildSetKey(era, range) {
 return String(era || '').trim() + '::' + String(range || '').trim();
 }
 
+function isHistoryRowEnabled(row) {
+if (!row) return true;
+if (row.length < 19) return true; // 旧データは有効扱い
+const raw = row[18];
+if (raw === '' || raw === null || raw === undefined) return true;
+const s = String(raw).trim().toLowerCase();
+if (["0", "false", "off", "no", "n", "無効", "invalid"].indexOf(s) >= 0) return false;
+return true;
+}
+
+function parseTimestampSafe(value) {
+if (!value) return NaN;
+try {
+  const d = (value instanceof Date) ? value : new Date(value);
+  return d.getTime();
+} catch (e) {
+  return NaN;
+}
+}
+
+function toBoolParam(v, fallback) {
+if (v === undefined || v === null || v === '') return fallback;
+const s = String(v).trim().toLowerCase();
+if (["1", "true", "on", "yes", "y"].indexOf(s) >= 0) return true;
+if (["0", "false", "off", "no", "n"].indexOf(s) >= 0) return false;
+return fallback;
+}
+
 function handleLogAll(p) {
 try {
 if (!p.spreadsheetId || p.spreadsheetId.trim() === '') {
@@ -115,10 +146,10 @@ const details = JSON.parse(p.details);
 const now = new Date();
 const timestampStr = Utilities.formatDate(now, "JST", "yyyy/MM/dd HH:mm:ss");
 const requestedExp = parseInt(p.gainedExp) || 0;
-const historyHeaders = ["日時", "単元", "範囲", "正解率", "スコア", "ユーザー名", "ユーザーID", "クラス", "番号", "取得EXP", "累計EXP", "10回平均正解率", "通算正答率", "連続正解数", "公開設定", "セッション数", "最終取り組み日", "ステータス"];
+const historyHeaders = ["日時", "単元", "範囲", "正解率", "スコア", "ユーザー名", "ユーザーID", "クラス", "番号", "取得EXP", "累計EXP", "10回平均正解率", "通算正答率", "連続正解数", "公開設定", "セッション数", "最終取り組み日", "ステータス", "有効"];
 const historySheet = getOrCreateSheet(ss, "履歴ログ", historyHeaders);
 let hData = historySheet.getDataRange().getValues();
-let userRows = hData.filter((r, idx) => idx > 0 && String(r[6]) === String(p.userId));
+let userRows = hData.filter((r, idx) => idx > 0 && String(r[6]) === String(p.userId) && isHistoryRowEnabled(r));
 
 // 既存データの連続正解数列が空の場合、再計算処理を実行
 if (hData.length > 1) {
@@ -132,13 +163,14 @@ if (hData.length > 1) {
     recalculateStreaks(ss, historySheet, hData);
     // 再計算後、データを再取得
     hData = historySheet.getDataRange().getValues();
-    userRows = hData.filter((r, idx) => idx > 0 && String(r[6]) === String(p.userId));
+    userRows = hData.filter((r, idx) => idx > 0 && String(r[6]) === String(p.userId) && isHistoryRowEnabled(r));
   }
 }
 
-// 重複防止（fail-open）: 直近30秒以内に同一ユーザー・同一セット・同一得点の記録があればスキップ
+// 重複防止（fail-open）: 直近60秒以内に同一ユーザー・同一セット・同一得点の記録があればスキップ
 try {
-  const DUP_WINDOW_MS = 30 * 1000;
+  const duplicateLogWindowSec = Math.max(0, Number(runtimeConfig.duplicateLogWindowSec) || 60);
+  const DUP_WINDOW_MS = duplicateLogWindowSec * 1000;
   if (userRows.length > 0) {
     const lastRow = userRows[userRows.length - 1];
     const lastTs = new Date(lastRow[0]).getTime();
@@ -153,7 +185,7 @@ try {
       const currentTotalExp = parseInt(lastRow[cumulativeExpIndex]) || 0;
       return returnJson({
         status: "duplicate_skipped",
-        message: "30秒以内の同一記録をスキップしました",
+        message: `${duplicateLogWindowSec}秒以内の同一記録をスキップしました`,
         requestedExp: requestedExp,
         appliedExp: 0,
         newTotalExp: currentTotalExp,
@@ -273,7 +305,7 @@ const userClass = p.userClass || '';
 const userNumber = p.userNumber || '';
 historySheet.appendRow([
   timestampStr, p.summaryEra, p.summaryRange, p.summaryAccuracy, p.summaryScore,
-  p.dbName, p.userId, userClass, userNumber, gainedExp, newTotalExp, avg10AccStr, overallAccStr, currentStreak, isPublic, sessionCount, lastAttemptDate, userStatus
+  p.dbName, p.userId, userClass, userNumber, gainedExp, newTotalExp, avg10AccStr, overallAccStr, currentStreak, isPublic, sessionCount, lastAttemptDate, userStatus, "1"
 ]);
 
 // 成績一覧シートを更新（全分野を1つのシートにまとめる）
@@ -329,6 +361,15 @@ const result = { problems: {}, userStats: {}, history: [], ranking: [], currentS
 
 // システム用シートを除外するリスト
 const excludeSheets = ["履歴ログ", "詳細履歴ログ", "問題別統計DB", "成績一覧", "メンバー一覧", "設定"];
+const excludeSheetAliases = ["config", "settings", "_config", "_settings"];
+const normalizeSheetName = (name) => String(name || '').replace(/\u3000/g, ' ').trim();
+const isExcludedSheet = (name) => {
+  const normalized = normalizeSheetName(name);
+  if (excludeSheets.includes(normalized)) return true;
+  const lower = normalized.toLowerCase();
+  if (excludeSheetAliases.includes(lower)) return true;
+  return false;
+};
 
 // 科学版：システム用シート以外のすべてのシートを動的に取得
 // スプレッドシートのシート名（分野名）から自動的に問題データを抽出
@@ -341,7 +382,7 @@ let loadedSheets = [];
 allSheets.forEach(s => {
   const name = s.getName();
   // システム用シートを除外し、その他のすべてのシート（分野）を取得
-  if (!excludeSheets.includes(name)) {
+  if (!isExcludedSheet(name)) {
     try {
       const sheetData = s.getDataRange().getValues();
       // 空のシートをスキップ（ヘッダー行のみ、またはデータなし）
@@ -421,6 +462,7 @@ if (historySheet) {
   // 履歴データを時系列でソートするための配列を作成
   const historyRows = [];
   for (let i = 1; i < hValues.length; i++) {
+    if (!isHistoryRowEnabled(hValues[i])) continue;
     if (hValues[i][0] && hDisp[i][0]) { // 日時が存在する場合のみ
       try {
         const timestamp = new Date(hValues[i][0]).getTime();
@@ -671,6 +713,101 @@ if (!sheet) {
   }
 }
 return sheet;
+}
+
+function handleDetectDuplicates(p) {
+try {
+  const spreadsheetId = p.spreadsheetId || p.id || '';
+  if (!spreadsheetId || spreadsheetId.trim() === '') {
+    return returnJson({ status: "error", message: "スプレッドシートIDが指定されていません" });
+  }
+  let ss;
+  try {
+    ss = SpreadsheetApp.openById(spreadsheetId);
+  } catch (openError) {
+    return returnJson({ status: "error", message: "スプレッドシートが見つかりません: " + openError.toString() });
+  }
+
+  const runtimeConfig = readRuntimeConfigFromSheet(ss);
+  const applyMode = toBoolParam(p.apply, false);
+  const includeAlreadyInvalid = toBoolParam(p.includeInvalid, false);
+  const windowSecParam = Number(p.windowSec);
+  const duplicateWindowSec = Math.max(
+    1,
+    isNaN(windowSecParam) ? (Number(runtimeConfig.duplicateLogWindowSec) || 60) : windowSecParam
+  );
+  const windowMs = duplicateWindowSec * 1000;
+
+  const historyHeaders = ["日時", "単元", "範囲", "正解率", "スコア", "ユーザー名", "ユーザーID", "クラス", "番号", "取得EXP", "累計EXP", "10回平均正解率", "通算正答率", "連続正解数", "公開設定", "セッション数", "最終取り組み日", "ステータス", "有効"];
+  const historySheet = getOrCreateSheet(ss, "履歴ログ", historyHeaders);
+  const data = historySheet.getDataRange().getValues();
+  if (!data || data.length <= 1) {
+    return returnJson({ status: "success", mode: applyMode ? "apply" : "dryRun", windowSec: duplicateWindowSec, scannedRows: 0, duplicateRows: 0, invalidatedRows: 0 });
+  }
+
+  const grouped = {};
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    if (!includeAlreadyInvalid && !isHistoryRowEnabled(row)) continue;
+    const userId = String(row[6] || '').trim();
+    if (!userId) continue;
+    const ts = parseTimestampSafe(row[0]);
+    if (isNaN(ts)) continue;
+    const key = [
+      userId,
+      String(row[1] || '').trim(),
+      String(row[2] || '').trim(),
+      String(row[4] || '').trim(),
+      String(row[3] || '').trim()
+    ].join('||');
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push({ rowNumber: r + 1, ts: ts, enabled: isHistoryRowEnabled(row) });
+  }
+
+  const duplicates = [];
+  Object.keys(grouped).forEach(function(key) {
+    const rows = grouped[key];
+    rows.sort(function(a, b) { return a.ts - b.ts; });
+    let anchor = null;
+    for (let i = 0; i < rows.length; i++) {
+      const current = rows[i];
+      if (!anchor) {
+        anchor = current;
+        continue;
+      }
+      if ((current.ts - anchor.ts) <= windowMs) {
+        duplicates.push({
+          rowNumber: current.rowNumber,
+          baseRowNumber: anchor.rowNumber,
+          deltaSec: Math.floor((current.ts - anchor.ts) / 1000),
+          key: key
+        });
+      } else {
+        anchor = current;
+      }
+    }
+  });
+
+  let invalidatedRows = 0;
+  if (applyMode && duplicates.length > 0) {
+    duplicates.forEach(function(d) {
+      historySheet.getRange(d.rowNumber, 19).setValue("0");
+      invalidatedRows++;
+    });
+  }
+
+  return returnJson({
+    status: "success",
+    mode: applyMode ? "apply" : "dryRun",
+    windowSec: duplicateWindowSec,
+    scannedRows: data.length - 1,
+    duplicateRows: duplicates.length,
+    invalidatedRows: invalidatedRows,
+    samples: duplicates.slice(0, 30)
+  });
+} catch (err) {
+  return returnJson({ status: "error", message: err.toString() });
+}
 }
 
 // 既存データの連続正解数を再計算する関数（詳細履歴ログから計算）
